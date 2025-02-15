@@ -1,0 +1,59 @@
+# Flutter/Dart-specific files
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+*.dart.js
+*.dart.js.deps
+*.dart.js.map
+
+# Build outputs
+build/
+android/app/debug/
+android/app/profile/
+android/app/release/
+ios/Flutter/App.framework
+ios/Flutter/Flutter.podspec
+ios/.symlinks/
+ios/Pods/
+ios/Runner.xcworkspace/
+macos/Flutter/ephemeral/
+windows/flutter/ephemeral/
+linux/flutter/ephemeral/
+web/.dart_tool/
+web/build/
+
+# JetBrains IDEs (Android Studio, IntelliJ)
+.idea/
+*.iml
+
+# VS Code
+.vscode/
+
+# Xcode specific
+ios/Runner.xcworkspace/
+ios/Runner.xcodeproj/project.xcworkspace/
+ios/Flutter/Flutter.podspec
+ios/.symlinks/
+ios/Pods/
+xcuserdata/
+
+# Gradle
+android/.gradle/
+android/app/.cxx/
+
+# CocoaPods
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.podspec
+
+# Python virtual environments (if using scripts)
+venv/
+__pycache__/
+
+# Firebase
+firebase_app_id_file.json
+
+# Other system files
+.DS_Store
+*.log
