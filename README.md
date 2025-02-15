@@ -1,16 +1,15 @@
-# pathpilotv2
+🚀 PathPilot: Voice-Guided Navigation App
 
-A new Flutter project.
+PathPilot is a Flutter-based mobile application that enables seamless voice-driven navigation using Google Maps. Users can search for locations either by typing or speaking, and the app will pinpoint the location on the map with a marker.
 
-## Getting Started
+Key Features
+✅ Voice-to-Text Search – Use speech input to find locations easily.
+✅ Google Maps Integration – Interactive map with zoom and centering capabilities.
+✅ Location Marker – Automatically places a marker on searched locations.
+✅ Seamless Navigation – Navigate between different pages using go_router.
 
-This project is a starting point for a Flutter application.
-
-A few resources to get you started if this is your first Flutter project:
-
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Tech Stack
+Flutter (Dart)
+Google Maps API
+Speech-to-Text
+GoRouter for navigation
