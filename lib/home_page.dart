@@ -22,19 +22,16 @@ class Homepage extends StatelessWidget {
                 context.go('/map'); // Navigate to Map Page
               },
               child: Text("Go to flutter Map Page"),
-            ),
+          ),
             SizedBox(height: 20),
             ElevatedButton(
               onPressed: () {
-                context.go('/osmap'); // Navigate to Map Page
+                context.go('/google-map'); // Navigate to Map Page
               },
               child: Text("Go to Osm Map Page"),
             ),
             SizedBox(height: 20),
-                        ElevatedButton(
-              onPressed: () => context.push('/google-map'),
-              child: Text("Open Google Map"),
-            ),
+
           ],
         ),
       ),

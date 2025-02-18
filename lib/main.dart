@@ -5,11 +5,8 @@ import 'voice_to_text_page.dart';
 import 'flutter_map_page.dart';
 import 'googlemap.dart';
 import 'Osm_map.dart';
-import 'package:flutter/material.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:google_maps_flutter_web/google_maps_flutter_web.dart';
+
 void main() {
-  GoogleMapsFlutterPlatform.instance = GoogleMapsFlutterWeb();
   runApp(MyApp());
 }
 
