@@ -3,6 +3,8 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 
 class VoiceToTextPage extends StatefulWidget {
+  const VoiceToTextPage({super.key});
+
   @override
   _VoiceToTextAppState createState() => _VoiceToTextAppState();
 }

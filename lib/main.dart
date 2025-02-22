@@ -30,12 +30,14 @@ class MyApp extends StatelessWidget {
         path: '/osmap',
         builder: (context, state) => OsmMapPage(),
       ),
-          GoRoute(
+      GoRoute(
       path: '/google-map',
       builder: (context, state) => GoogleMapPage(),
     ),
     ],
   );
+
+  MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {

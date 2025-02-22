@@ -6,13 +6,15 @@ import 'package:http/http.dart' as http;
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 class FlutterMapPage extends StatefulWidget {
+  const FlutterMapPage({super.key});
+
   @override
   _FlutterMapPageState createState() => _FlutterMapPageState();
 }
 
 class _FlutterMapPageState extends State<FlutterMapPage> {
   final MapController _mapController = MapController();
-  TextEditingController _searchController = TextEditingController();
+  final TextEditingController _searchController = TextEditingController();
   LatLng _searchedLocation = LatLng(10.5201, 7.4383); // Default (ABU Zaria)
   bool _isSearching = false;
   bool _isListening = false;
