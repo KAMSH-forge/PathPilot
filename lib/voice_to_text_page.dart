@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
-
 
 class VoiceToTextPage extends StatefulWidget {
   const VoiceToTextPage({super.key});
@@ -16,7 +16,7 @@ class _VoiceToTextAppState extends State<VoiceToTextPage> {
 
   @override
   void initState() {
-  super.initState();
+    super.initState();
     _speech = stt.SpeechToText();
   }
 
@@ -43,7 +43,11 @@ class _VoiceToTextAppState extends State<VoiceToTextPage> {
   Widget build(BuildContext context) {
     return MaterialApp(
       home: Scaffold(
-        appBar: AppBar(title: Text("Speech to Text")),
+        appBar: AppBar(
+          title: Text("Speech to Text"),
+          leading: IconButton(icon: Icon(Icons.arrow_back),
+          onPressed: () => context.pop(),),
+        ),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(16.0),
