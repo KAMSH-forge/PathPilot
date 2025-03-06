@@ -46,6 +46,7 @@ dependencies:
   location: ^5.0.3
   google_place: ^0.4.7
   place_picker_google: ^0.0.14
+  flutter_dotenv: ^5.1.0
 
 dependency_overrides:
   http: ^0.13.3

@@ -5,18 +5,22 @@ import 'package:go_router/go_router.dart';
 import 'package:location/location.dart' as loc;
 import 'package:http/http.dart' as http;
 import 'package:google_place/google_place.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 class GoogleMapPage extends StatefulWidget {
   const GoogleMapPage({super.key});
-
   @override
   _GoogleMapPageState createState() => _GoogleMapPageState();
 }
-
 class _GoogleMapPageState extends State<GoogleMapPage> {
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  bool _isListening = false;
+
   late GoogleMapController mapController;
   final TextEditingController _searchController = TextEditingController();
-  LatLng _currentLocation = const LatLng(45.521563, -122.677433); // Default location
+  LatLng _currentLocation =
+      const LatLng(45.521563, -122.677433); // Default location
   LatLng? _currentPosition;
   final String _apiKey = "AIzaSyC_p8YHhBBEjDMsniEZYd4vzF73QEaGY7o";
 
@@ -28,7 +32,44 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     super.initState();
     googlePlace = GooglePlace(_apiKey);
     _getUserLocation();
+    _initSpeech();
   }
+
+  Future<void> _initSpeech() async {
+    bool available = await _speech.initialize();
+    if (!available){
+      print('speech recognition is not available');
+    }
+  }
+
+
+void _startListening() async {
+  if (!_isListening) {
+    bool available = await _speech.initialize();
+    if (available) {
+      setState(() => _isListening = true);
+      _speech.listen(onResult: (result) {
+        setState(() {
+          _searchController.text = result.recognizedWords;
+        });
+
+        if (result.finalResult) {
+          _searchLocation();
+          _stopListening();
+        }
+      });
+    }
+  }
+}
+
+void _stopListening() {
+  setState(() {
+    _isListening = false;
+  });
+  _speech.stop();
+}
+
+
 
   void _onMapCreated(GoogleMapController controller) {
     mapController = controller;
@@ -36,7 +77,8 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
 
   Future<void> _fetchLocationFromAPI() async {
     final response = await http.post(
-      Uri.parse('https://www.googleapis.com/geolocation/v1/geolocate?key=$_apiKey'),
+      Uri.parse(
+          'https://www.googleapis.com/geolocation/v1/geolocate?key=$_apiKey'),
       headers: {"Content-Type": "application/json"},
     );
 
@@ -58,7 +100,8 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
       });
 
       if (mounted && mapController != null) {
-        mapController.animateCamera(CameraUpdate.newLatLngZoom(_currentPosition!, 14));
+        mapController
+            .animateCamera(CameraUpdate.newLatLngZoom(_currentPosition!, 14));
       }
     } else {
       print('Failed to load location data: ${response.body}');
@@ -81,7 +124,8 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
 
     loc.LocationData userLocation = await location.getLocation();
     setState(() {
-      _currentLocation = LatLng(userLocation.latitude!, userLocation.longitude!);
+      _currentLocation =
+          LatLng(userLocation.latitude!, userLocation.longitude!);
       _markers.clear();
       _markers.add(
         Marker(
@@ -93,51 +137,52 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     });
 
     if (mounted && mapController != null) {
-      mapController.animateCamera(CameraUpdate.newLatLngZoom(_currentLocation, 14));
+      mapController
+          .animateCamera(CameraUpdate.newLatLngZoom(_currentLocation, 14));
     }
   }
 
-Future<void> _searchLocation() async {
-  String query = _searchController.text;
-  if (query.isEmpty) return;
+  Future<void> _searchLocation() async {
+    String query = _searchController.text;
+    if (query.isEmpty) return;
+    final String url =
+        "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
+        "?input=$query&inputtype=textquery&fields=geometry&key=$_apiKey";
+
+    final response = await http.get(Uri.parse(url));
+
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+
+      if (data["candidates"] != null &&
+          data["candidates"].isNotEmpty &&
+          data["candidates"][0]["geometry"] != null) {
+        double lat = data["candidates"][0]["geometry"]["location"]["lat"];
+        double lng = data["candidates"][0]["geometry"]["location"]["lng"];
+
+        setState(() {
+          _markers.clear();
+          _markers.add(
+            Marker(
+              markerId: MarkerId(query),
+              position: LatLng(lat, lng),
+              infoWindow: InfoWindow(title: query),
+            ),
+          );
 
 
-  final String url =
-      "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
-      "?input=$query&inputtype=textquery&fields=geometry&key=$_apiKey";
+          
+        });
 
-  final response = await http.get(Uri.parse(url));
-
-  if (response.statusCode == 200) {
-    final data = json.decode(response.body);
-
-    if (data["candidates"] != null &&
-        data["candidates"].isNotEmpty &&
-        data["candidates"][0]["geometry"] != null) {
-      double lat = data["candidates"][0]["geometry"]["location"]["lat"];
-      double lng = data["candidates"][0]["geometry"]["location"]["lng"];
-
-      setState(() {
-        _markers.clear();
-        _markers.add(
-          Marker(
-            markerId: MarkerId(query),
-            position: LatLng(lat, lng),
-            infoWindow: InfoWindow(title: query),
-          ),
-        );
-      });
-
-      if (mounted && mapController != null) {
-        mapController.animateCamera(CameraUpdate.newLatLngZoom(LatLng(lat, lng), 14));
+        if (mounted && mapController != null) {
+          mapController
+              .animateCamera(CameraUpdate.newLatLngZoom(LatLng(lat, lng), 14));
+        }
       }
+    } else {
+      print("Error: ${response.body}");
     }
-  } else {
-    print("Error: ${response.body}");
   }
-}
-
-
 
   @override
   Widget build(BuildContext context) {
@@ -158,27 +203,62 @@ Future<void> _searchLocation() async {
                 Expanded(
                   child: TextField(
                     controller: _searchController,
-                    decoration: const InputDecoration(
-                      hintText: "Search Location...",
-                      border: OutlineInputBorder(),
-                    ),
+                    decoration: InputDecoration(
+                        hintText: "Search Location...",
+                        filled: true,
+                        fillColor: Colors.white,
+                        prefixIcon: Icon(Icons.search, color: Colors.blue),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(30),
+                          borderSide: BorderSide.none,
+                        ),
+                        contentPadding:
+                            EdgeInsets.symmetric(vertical: 14, horizontal: 20)),
+                    textInputAction: TextInputAction.search,
+                    onSubmitted: (value) {
+                      _searchLocation();
+          
+                    },
                   ),
                 ),
-                IconButton(
-                  onPressed: _searchLocation,
-                  icon: const Icon(Icons.search),
+                SizedBox(width: 8),
+                Container(
+                  decoration: BoxDecoration(
+                      color: Colors.blue,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black26,
+                          blurRadius: 6,
+                          offset: Offset(0, 3),
+                        ),
+                      ]),
                 ),
+                // IconButton(
+                //   onPressed: _searchLocation,
+                //   icon: const Icon(Icons.search),
+                // ),
+                IconButton(
+                  icon: Icon(_isListening ? Icons.mic : Icons.mic_none, color: Colors.blue),
+                  onPressed:_startListening)
               ],
             ),
           ),
           Expanded(
             child: GoogleMap(
               onMapCreated: _onMapCreated,
-              initialCameraPosition: CameraPosition(target: _currentLocation, zoom: 14.0),
+              initialCameraPosition:
+                  CameraPosition(target: _currentLocation, zoom: 14.0),
               markers: _markers,
             ),
           ),
         ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _getUserLocation,
+        tooltip: "Go to my location",
+        enableFeedback: true,
+        child: const Icon(Icons.my_location),
       ),
     );
   }

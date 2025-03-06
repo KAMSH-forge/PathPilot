@@ -5,8 +5,9 @@ import 'voice_to_text_page.dart';
 import 'flutter_map_page.dart';
 import 'googlemap.dart';
 import 'Osm_map.dart';
-
-void main() {
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+void main() async {
+  // await dotenv.load();
   runApp(MyApp());
 }
 
