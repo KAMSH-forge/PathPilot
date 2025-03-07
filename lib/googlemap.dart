@@ -13,6 +13,7 @@ class GoogleMapPage extends StatefulWidget {
   @override
   _GoogleMapPageState createState() => _GoogleMapPageState();
 }
+
 class _GoogleMapPageState extends State<GoogleMapPage> {
   final stt.SpeechToText _speech = stt.SpeechToText();
   bool _isListening = false;
@@ -37,39 +38,36 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
 
   Future<void> _initSpeech() async {
     bool available = await _speech.initialize();
-    if (!available){
+    if (!available) {
       print('speech recognition is not available');
     }
   }
 
+  void _startListening() async {
+    if (!_isListening) {
+      bool available = await _speech.initialize();
+      if (available) {
+        setState(() => _isListening = true);
+        _speech.listen(onResult: (result) {
+          setState(() {
+            _searchController.text = result.recognizedWords;
+          });
 
-void _startListening() async {
-  if (!_isListening) {
-    bool available = await _speech.initialize();
-    if (available) {
-      setState(() => _isListening = true);
-      _speech.listen(onResult: (result) {
-        setState(() {
-          _searchController.text = result.recognizedWords;
+          if (result.finalResult) {
+            _searchLocation();
+            _stopListening();
+          }
         });
-
-        if (result.finalResult) {
-          _searchLocation();
-          _stopListening();
-        }
-      });
+      }
     }
   }
-}
 
-void _stopListening() {
-  setState(() {
-    _isListening = false;
-  });
-  _speech.stop();
-}
-
-
+  void _stopListening() {
+    setState(() {
+      _isListening = false;
+    });
+    _speech.stop();
+  }
 
   void _onMapCreated(GoogleMapController controller) {
     mapController = controller;
@@ -142,47 +140,68 @@ void _stopListening() {
     }
   }
 
-  Future<void> _searchLocation() async {
-    String query = _searchController.text;
-    if (query.isEmpty) return;
-    final String url =
-        "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
-        "?input=$query&inputtype=textquery&fields=geometry&key=$_apiKey";
+Future<void> _searchLocation() async {
+  String query = _searchController.text;
+  if (query.isEmpty) return;
 
-    final response = await http.get(Uri.parse(url));
+  final String url =
+      "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
+      "?input=$query&inputtype=textquery&fields=geometry&key=$_apiKey";
 
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
+  final response = await http.get(Uri.parse(url));
 
-      if (data["candidates"] != null &&
-          data["candidates"].isNotEmpty &&
-          data["candidates"][0]["geometry"] != null) {
-        double lat = data["candidates"][0]["geometry"]["location"]["lat"];
-        double lng = data["candidates"][0]["geometry"]["location"]["lng"];
+  if (response.statusCode == 200) {
+    final data = json.decode(response.body);
 
-        setState(() {
-          _markers.clear();
-          _markers.add(
-            Marker(
-              markerId: MarkerId(query),
-              position: LatLng(lat, lng),
-              infoWindow: InfoWindow(title: query),
+    if (data["candidates"] != null &&
+        data["candidates"].isNotEmpty &&
+        data["candidates"][0]["geometry"] != null) {
+      double lat = data["candidates"][0]["geometry"]["location"]["lat"];
+      double lng = data["candidates"][0]["geometry"]["location"]["lng"];
+
+      setState(() {
+        _markers.clear(); // Clear previous markers
+
+        // Add marker for searched location
+        _markers.add(
+          Marker(
+            markerId: MarkerId(query),
+            position: LatLng(lat, lng),
+            infoWindow: InfoWindow(title: query),
+          ),
+        );
+
+        // Add marker for current location
+        _markers.add(
+          Marker(
+            markerId: const MarkerId('currentLocation'),
+            position: _currentLocation,
+            infoWindow: const InfoWindow(title: "You are here"),
+          ),
+        );
+      });
+
+      if (mounted && mapController != null) {
+        // Move the camera to show both markers
+        mapController.animateCamera(
+          CameraUpdate.newLatLngBounds(
+            LatLngBounds(
+              southwest: LatLng(
+                  lat < _currentLocation.latitude ? lat : _currentLocation.latitude,
+                  lng < _currentLocation.longitude ? lng : _currentLocation.longitude),
+              northeast: LatLng(
+                  lat > _currentLocation.latitude ? lat : _currentLocation.latitude,
+                  lng > _currentLocation.longitude ? lng : _currentLocation.longitude),
             ),
-          );
-
-
-          
-        });
-
-        if (mounted && mapController != null) {
-          mapController
-              .animateCamera(CameraUpdate.newLatLngZoom(LatLng(lat, lng), 14));
-        }
+            50, // Padding
+          ),
+        );
       }
-    } else {
-      print("Error: ${response.body}");
     }
+  } else {
+    print("Error: ${response.body}");
   }
+}
 
   @override
   Widget build(BuildContext context) {
@@ -217,7 +236,6 @@ void _stopListening() {
                     textInputAction: TextInputAction.search,
                     onSubmitted: (value) {
                       _searchLocation();
-          
                     },
                   ),
                 ),
@@ -239,8 +257,9 @@ void _stopListening() {
                 //   icon: const Icon(Icons.search),
                 // ),
                 IconButton(
-                  icon: Icon(_isListening ? Icons.mic : Icons.mic_none, color: Colors.blue),
-                  onPressed:_startListening)
+                    icon: Icon(_isListening ? Icons.mic : Icons.mic_none,
+                        color: Colors.blue),
+                    onPressed: _startListening)
               ],
             ),
           ),
