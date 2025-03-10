@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:go_router/go_router.dart';
 import 'package:location/location.dart' as loc;
@@ -7,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:google_place/google_place.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:google_polyline_algorithm/google_polyline_algorithm.dart';
 
 class GoogleMapPage extends StatefulWidget {
   const GoogleMapPage({super.key});
@@ -16,17 +18,16 @@ class GoogleMapPage extends StatefulWidget {
 
 class _GoogleMapPageState extends State<GoogleMapPage> {
   final stt.SpeechToText _speech = stt.SpeechToText();
+  late FlutterTts _flutterTts;
   bool _isListening = false;
-
+  Set <Polyline> _polylines = {};
   late GoogleMapController mapController;
   final TextEditingController _searchController = TextEditingController();
-  LatLng _currentLocation =
-      const LatLng(45.521563, -122.677433); // Default location
+  LatLng _currentLocation = const LatLng(45.521563, -122.677433); // Default location
   LatLng? _currentPosition;
   final String _apiKey = "AIzaSyC_p8YHhBBEjDMsniEZYd4vzF73QEaGY7o";
-
   late GooglePlace googlePlace;
-  Set<Marker> _markers = {};
+  Set <Marker> _markers = {};
 
   @override
   void initState() {
@@ -34,6 +35,15 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     googlePlace = GooglePlace(_apiKey);
     _getUserLocation();
     _initSpeech();
+    _initializeTts();
+  }
+
+  void _initializeTts() {
+    _flutterTts = FlutterTts();
+    _flutterTts.setLanguage('en-US');
+    _flutterTts.setSpeechRate(0.5);
+    _flutterTts.setVolume(1.0);
+    _flutterTts.setPitch(1.0);
   }
 
   Future<void> _initSpeech() async {
@@ -79,7 +89,6 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
           'https://www.googleapis.com/geolocation/v1/geolocate?key=$_apiKey'),
       headers: {"Content-Type": "application/json"},
     );
-
     if (response.statusCode == 200) {
       final data = json.decode(response.body);
       double lat = data['location']['lat'];
@@ -106,6 +115,7 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     }
   }
 
+// GET USER CURRENT LOCATION
   Future<void> _getUserLocation() async {
     loc.Location location = loc.Location();
     bool serviceEnabled = await location.serviceEnabled();
@@ -138,70 +148,142 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
       mapController
           .animateCamera(CameraUpdate.newLatLngZoom(_currentLocation, 14));
     }
+    await _speakLocation(_currentLocation);
   }
 
-Future<void> _searchLocation() async {
-  String query = _searchController.text;
-  if (query.isEmpty) return;
+// GET DIRECTION FOR USERS DESTINATION
+  Future<void> _getDirections(LatLng start, LatLng end) async {
+    final String url = "https://maps.googleapis.com/maps/api/directions/json?"
+        "origin=${start.latitude},${start.longitude}"
+        "&destination=${end.latitude},${end.longitude}"
+        "&key=$_apiKey";
 
-  final String url =
-      "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
-      "?input=$query&inputtype=textquery&fields=geometry&key=$_apiKey";
+    final response = await http.get(Uri.parse(url));
 
-  final response = await http.get(Uri.parse(url));
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
 
-  if (response.statusCode == 200) {
-    final data = json.decode(response.body);
+      if (data['routes'].isNotEmpty) {
+        String polyline = data['routes'][0]['overview_polyline']['points'];
 
-    if (data["candidates"] != null &&
-        data["candidates"].isNotEmpty &&
-        data["candidates"][0]["geometry"] != null) {
-      double lat = data["candidates"][0]["geometry"]["location"]["lat"];
-      double lng = data["candidates"][0]["geometry"]["location"]["lng"];
-
-      setState(() {
-        _markers.clear(); // Clear previous markers
-
-        // Add marker for searched location
-        _markers.add(
-          Marker(
-            markerId: MarkerId(query),
-            position: LatLng(lat, lng),
-            infoWindow: InfoWindow(title: query),
-          ),
-        );
-
-        // Add marker for current location
-        _markers.add(
-          Marker(
-            markerId: const MarkerId('currentLocation'),
-            position: _currentLocation,
-            infoWindow: const InfoWindow(title: "You are here"),
-          ),
-        );
-      });
-
-      if (mounted && mapController != null) {
-        // Move the camera to show both markers
-        mapController.animateCamera(
-          CameraUpdate.newLatLngBounds(
-            LatLngBounds(
-              southwest: LatLng(
-                  lat < _currentLocation.latitude ? lat : _currentLocation.latitude,
-                  lng < _currentLocation.longitude ? lng : _currentLocation.longitude),
-              northeast: LatLng(
-                  lat > _currentLocation.latitude ? lat : _currentLocation.latitude,
-                  lng > _currentLocation.longitude ? lng : _currentLocation.longitude),
+        List<LatLng> polylineCoordinates = decodePolyline(polyline)
+            .map((point) => LatLng(point[0].toDouble(), point[1].toDouble()))
+            .toList();
+        print(polylineCoordinates);
+        setState(() {
+          _polylines.clear();
+          _polylines.add(
+            Polyline(
+              polylineId: const PolylineId('route'),
+              points: polylineCoordinates,
+              color: Colors.blue,
+              width: 5,
             ),
-            50, // Padding
-          ),
-        );
+          );
+        });
       }
+    } else {
+      print("Error fetching directions: ${response.body}");
     }
-  } else {
-    print("Error: ${response.body}");
   }
-}
+
+// SEARCH LOCATION
+  Future<void> _searchLocation() async {
+    if (_currentLocation == null) {
+      print("Current location is not available yet.");
+      return;
+    }
+
+    String query = _searchController.text;
+    if (query.isEmpty) return;
+    final String url =
+        "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
+        "?input=$query&inputtype=textquery&fields=geometry&key=$_apiKey";
+    final response = await http.get(Uri.parse(url));
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      if (data["candidates"] != null &&
+          data["candidates"].isNotEmpty &&
+          data["candidates"][0]["geometry"] != null) {
+        double lat = data["candidates"][0]["geometry"]["location"]["lat"];
+        double lng = data["candidates"][0]["geometry"]["location"]["lng"];
+        LatLng searchedLocation = LatLng(lat, lng);
+        setState(() {
+          _markers.clear(); // Clear previous markers
+          // Add marker for searched location
+          _markers.add(
+            Marker(
+              markerId: MarkerId(query),
+              position: searchedLocation,
+              infoWindow: InfoWindow(title: query),
+            ),
+          );
+
+          // Add marker for current location
+          _markers.add(
+            Marker(
+              markerId: const MarkerId('currentLocation'),
+              position: _currentLocation,
+              infoWindow: const InfoWindow(title: "You are here"),
+            ),
+          );
+
+          _getDirections(_currentLocation, searchedLocation); // Get route
+        });
+        if (mounted && mapController != null) {
+          // Move the camera to show both locations
+          mapController.animateCamera(
+            CameraUpdate.newLatLngBounds(
+              LatLngBounds(
+                southwest: LatLng(
+                    lat < _currentLocation.latitude
+                        ? lat
+                        : _currentLocation.latitude,
+                    lng < _currentLocation.longitude
+                        ? lng
+                        : _currentLocation.longitude),
+                northeast: LatLng(
+                    lat > _currentLocation.latitude
+                        ? lat
+                        : _currentLocation.latitude,
+                    lng > _currentLocation.longitude
+                        ? lng
+                        : _currentLocation.longitude),
+              ),
+              50, // Padding
+            ),
+          );
+        }
+      }
+    } else {
+      print("Error: ${response.body}");
+    }
+  }
+
+  Future<void> _speakLocation(LatLng location) async {
+    try {
+      final String url = "https://maps.googleapis.com/maps/api/geocode/json"
+          "?latlng=${location.latitude},${location.longitude}&key=$_apiKey";
+
+      final response = await http.get(Uri.parse(url));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data["results"] != null && data["results"].isNotEmpty) {
+          String address = data["results"][0]["formatted_address"];
+          print("Current Location: $address");
+
+          await _flutterTts.setLanguage("en-US");
+          await _flutterTts.setSpeechRate(0.5);
+          await _flutterTts.speak("You are currently at $address");
+        }
+      } else {
+        print("Error fetching address: ${response.body}");
+      }
+    } catch (e) {
+      print("Error with text-to-speech: $e");
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -266,6 +348,7 @@ Future<void> _searchLocation() async {
           Expanded(
             child: GoogleMap(
               onMapCreated: _onMapCreated,
+              polylines: _polylines,
               initialCameraPosition:
                   CameraPosition(target: _currentLocation, zoom: 14.0),
               markers: _markers,
