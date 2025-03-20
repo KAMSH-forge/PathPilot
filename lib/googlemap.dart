@@ -18,12 +18,11 @@ class GoogleMapPage extends StatefulWidget {
 class _GoogleMapPageState extends State<GoogleMapPage> {
   late GoogleMapController mapController;
   final TextEditingController _searchController = TextEditingController();
-  LatLng _currentLocation =
-      const LatLng(45.521563, -122.677433); // Default location
+  LatLng _currentLocation = const LatLng(11.085541, -7.719945); // Default location {change it back to ABU ZARIA}
   LatLng? _destination;
   Set<Polyline> _polylines = {};
   Set<Marker> _markers = {};
-  final String _apiKey = "AIzaSyC_p8YHhBBEjDMsniEZYd4vzF73QEaGY7o";
+  final String _apiKey = "AIzaSyC_p8YHhBBEjDMsniEZYd4vzF73QEaGY7o"; // move it out to environmental variable
   bool _isNavigating = false;
   List<Map<String, dynamic>> _navigationSteps = [];
   int _currentStepIndex = 0;
@@ -36,8 +35,8 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
   @override
   void initState() {
     super.initState();
-    _initializeTts();
-    _getUserLocation();
+    _initializeTts();  // Initaialize text to speech  
+    _getUserLocation(); // get user current location
     _initSpeech(); // Initialize speech-to-text
   }
 
@@ -66,6 +65,20 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
       _speech.stop();
       return;
     }
+
+    // using keyword to search and navigate
+    void _processVoiceCommand(String recognizedText){
+      if(recognizedText.toLowerCase().contains("pathpilot")){
+        String destinationQuery = recognizedText
+        .toLowerCase()
+        .replaceAll('pathpilot','')
+        .replaceAll('take me to', '')
+        .trim();
+        // Search for destination query
+        _searchLocation();
+      }
+    }
+
     bool available = await _speech.initialize();
     if (available) {
       setState(() => _isListening = true);
@@ -103,12 +116,12 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     loc.LocationData userLocation = await location.getLocation();
     setState(() {
       _currentLocation =
-          LatLng(userLocation.latitude!, userLocation.longitude!);
-      _destination = null;
+          LatLng(userLocation.latitude!, userLocation.longitude!); 
+      _destination = null; // clear destination to be null
       _updateMarkers();
+    // Clear all polylines when returning to the current location
       _polylines.clear();
     });
-    // Clear all polylines when returning to the current location
     if (mounted && mapController != null) {
       mapController.animateCamera(CameraUpdate.newLatLngZoom(_currentLocation, 14));
     }
@@ -119,6 +132,7 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     setState(() {
       _markers.clear();
       _markers.add(
+        // Change marker to arrow like
         Marker(
           markerId: const MarkerId('currentLocation'),
           position: _currentLocation,
@@ -176,7 +190,9 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     final String url = "https://maps.googleapis.com/maps/api/directions/json?"
         "origin=${start.latitude},${start.longitude}"
         "&destination=${end.latitude},${end.longitude}"
+        "&mode=walking"
         "&key=$_apiKey";
+        
     final response = await http.get(Uri.parse(url));
     if (response.statusCode == 200) {
       final data = json.decode(response.body);
