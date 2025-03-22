@@ -18,26 +18,32 @@ class GoogleMapPage extends StatefulWidget {
 class _GoogleMapPageState extends State<GoogleMapPage> {
   late GoogleMapController mapController;
   final TextEditingController _searchController = TextEditingController();
-  LatLng _currentLocation = const LatLng(11.085541, -7.719945); // Default location {change it back to ABU ZARIA}
+  LatLng _currentLocation =
+      const LatLng(11.085541, -7.719945); // Default location (ABU Zaria)
   LatLng? _destination;
+  final LatLngBounds abuZariaBounds = LatLngBounds(
+    southwest: LatLng(11.0800, 7.6900), // Southwest corner
+    northeast: LatLng(11.0900, 7.7100), // Northeast corner
+  );
   Set<Polyline> _polylines = {};
   Set<Marker> _markers = {};
-  final String _apiKey = "AIzaSyC_p8YHhBBEjDMsniEZYd4vzF73QEaGY7o"; // move it out to environmental variable
+  final String _apiKey = "AIzaSyC_p8YHhBBEjDMsniEZYd4vzF73QEaGY7o";
   bool _isNavigating = false;
+  bool _isLoading = true;
   List<Map<String, dynamic>> _navigationSteps = [];
   int _currentStepIndex = 0;
   late FlutterTts _flutterTts;
 
   // Speech-to-Text Variables
-  final stt.SpeechToText _speech = stt.SpeechToText(); // Initialize SpeechToText
+  final stt.SpeechToText _speech = stt.SpeechToText();
   bool _isListening = false;
 
   @override
   void initState() {
     super.initState();
-    _initializeTts();  // Initaialize text to speech  
-    _getUserLocation(); // get user current location
-    _initSpeech(); // Initialize speech-to-text
+    _initializeTts();
+    _getUserLocation();
+    _initSpeech();
   }
 
   void _initializeTts() {
@@ -57,26 +63,12 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
 
   void _startListening() async {
     if (_isListening) {
-      // If already listening, stop listening and clear the search bar
       setState(() {
         _isListening = false;
         _searchController.clear();
       });
       _speech.stop();
       return;
-    }
-
-    // using keyword to search and navigate
-    void _processVoiceCommand(String recognizedText){
-      if(recognizedText.toLowerCase().contains("pathpilot")){
-        String destinationQuery = recognizedText
-        .toLowerCase()
-        .replaceAll('pathpilot','')
-        .replaceAll('take me to', '')
-        .trim();
-        // Search for destination query
-        _searchLocation();
-      }
     }
 
     bool available = await _speech.initialize();
@@ -87,7 +79,7 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
           _searchController.text = result.recognizedWords;
         });
         if (result.finalResult) {
-          _searchLocation();
+          _processVoiceCommand(result.recognizedWords);
           _stopListening();
         }
       });
@@ -101,29 +93,94 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     _speech.stop();
   }
 
+  void _processVoiceCommand(String recognizedText) {
+    if (recognizedText.toLowerCase().contains("path pilot")) {
+      // Extract the command after "Pathpilot"
+      String command =
+          recognizedText.toLowerCase().replaceAll("path pilot", "").trim();
+      if (command.contains("take me to")) {
+        // Handle destination search command
+        String destinationQuery = command.replaceAll("take me to", "").trim();
+        if (destinationQuery.isNotEmpty) {
+          _searchController.text = destinationQuery; // Update search bar
+          _searchLocation(); // Search for the destination
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Please specify a destination.")),
+          );
+          _flutterTts.speak("Please specify a destination.");
+        }
+      } else if (command.contains("where am i") ||
+          command.contains("tell me my location")) {
+        // Handle current location command
+        _getUserLocation();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Command not recognized. Try again.")),
+        );
+        _flutterTts.speak("Command not recognized. Try again.");
+      }
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text("Please start your command with 'path pilot'.")),
+      );
+      _flutterTts.speak("Please start your command with 'path pilot'.");
+    }
+  }
+
   Future<void> _getUserLocation() async {
-    loc.Location location = loc.Location();
-    bool serviceEnabled = await location.serviceEnabled();
+    if (_isNavigating) {
+      // Stop navigation if it's currently active
+      setState(() {
+        _isNavigating = false; // stop navigation
+        _currentStepIndex = 0; // Reset step index
+        _navigationSteps.clear(); // Clear navigation steps
+        _polylines.clear(); // Clear polyline
+      });
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    loc.Location _locationController = loc.Location();
+    bool serviceEnabled = await _locationController.serviceEnabled();
     if (!serviceEnabled) {
-      serviceEnabled = await location.requestService();
+      serviceEnabled = await _locationController.requestService();
       if (!serviceEnabled) return;
     }
-    loc.PermissionStatus permission = await location.hasPermission();
+    loc.PermissionStatus permission = await _locationController.hasPermission();
     if (permission == loc.PermissionStatus.denied) {
-      permission = await location.requestPermission();
+      permission = await _locationController.requestPermission();
       if (permission != loc.PermissionStatus.granted) return;
     }
-    loc.LocationData userLocation = await location.getLocation();
+
+    _locationController.onLocationChanged
+        .listen((loc.LocationData currentLocation) {
+      if (currentLocation.latitude != null &&
+          currentLocation.longitude != null) {
+        setState(() {
+          _currentLocation =
+              LatLng(currentLocation.latitude!,currentLocation.longitude!);
+        });
+      }
+    });
+
+    loc.LocationData userLocation = await _locationController.getLocation();
+
     setState(() {
       _currentLocation =
-          LatLng(userLocation.latitude!, userLocation.longitude!); 
-      _destination = null; // clear destination to be null
+          LatLng(userLocation.latitude!, userLocation.longitude!);
+      _destination = null;
       _updateMarkers();
-    // Clear all polylines when returning to the current location
       _polylines.clear();
+      _isLoading = false;
     });
+
     if (mounted && mapController != null) {
-      mapController.animateCamera(CameraUpdate.newLatLngZoom(_currentLocation, 14));
+      mapController
+          .animateCamera(CameraUpdate.newLatLngZoom(_currentLocation, 14));
     }
     await _speakLocation(_currentLocation);
   }
@@ -132,7 +189,6 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     setState(() {
       _markers.clear();
       _markers.add(
-        // Change marker to arrow like
         Marker(
           markerId: const MarkerId('currentLocation'),
           position: _currentLocation,
@@ -145,21 +201,6 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
             markerId: const MarkerId('destination'),
             position: _destination!,
             infoWindow: const InfoWindow(title: "Destination"),
-            onTap: () {
-              showDialog(
-                context: context,
-                builder: (context) => AlertDialog(
-                  title: const Text("Destination Details"),
-                  content: Text("Destination: ${_searchController.text}"),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text("OK"),
-                    ),
-                  ],
-                ),
-              );
-            },
           ),
         );
       }
@@ -186,13 +227,17 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     }
   }
 
+  String _cleanHtmlTags(String htmlText) {
+    final document = html_parser.parse(htmlText);
+    return document.body?.text ?? htmlText;
+  }
+
   Future<void> _getDirections(LatLng start, LatLng end) async {
     final String url = "https://maps.googleapis.com/maps/api/directions/json?"
         "origin=${start.latitude},${start.longitude}"
         "&destination=${end.latitude},${end.longitude}"
         "&mode=walking"
         "&key=$_apiKey";
-        
     final response = await http.get(Uri.parse(url));
     if (response.statusCode == 200) {
       final data = json.decode(response.body);
@@ -212,49 +257,48 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
             ),
           );
         });
-
         // Extract navigation steps
         List<dynamic> steps = data['routes'][0]['legs'][0]['steps'];
+        print(steps);
         setState(() {
           _navigationSteps = steps.map((step) {
             return {
               'instructions': _cleanHtmlTags(step['html_instructions']),
               'distance': step['distance']['text'],
               'duration': step['duration']['text'],
-              'polyline': step['polyline']['points'], // Store the polyline for each step
             };
           }).toList();
         });
-
         // Move the camera to show both locations
         if (mounted && mapController != null) {
           mapController.animateCamera(
             CameraUpdate.newLatLngBounds(
               LatLngBounds(
                 southwest: LatLng(
-                    start.latitude < end.latitude ? start.latitude : end.latitude,
-                    start.longitude < end.longitude
-                        ? start.longitude
-                        : end.longitude),
+                    _currentLocation.latitude < _destination!.latitude
+                        ? _currentLocation.latitude
+                        : _destination!.latitude,
+                    _currentLocation.longitude < _destination!.longitude
+                        ? _currentLocation.longitude
+                        : _destination!.longitude),
                 northeast: LatLng(
-                    start.latitude > end.latitude ? start.latitude : end.latitude,
-                    start.longitude > end.longitude
-                        ? start.longitude
-                        : end.longitude),
+                    _currentLocation.latitude > _destination!.latitude
+                        ? _currentLocation.latitude
+                        : _destination!.latitude,
+                    _currentLocation.longitude > _destination!.longitude
+                        ? _currentLocation.longitude
+                        : _destination!.longitude),
               ),
               50, // Padding
             ),
           );
         }
+      _startNavigation();
+      print("starting navigation within _getDirection");
       }
     } else {
       print("Error fetching directions: ${response.body}");
     }
-  }
-
-  String _cleanHtmlTags(String htmlText) {
-    final document = html_parser.parse(htmlText);
-    return document.body?.text ?? htmlText;
   }
 
   Future<void> _searchLocation() async {
@@ -271,8 +315,10 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
           data["candidates"][0]["geometry"] != null) {
         double lat = data["candidates"][0]["geometry"]["location"]["lat"];
         double lng = data["candidates"][0]["geometry"]["location"]["lng"];
+        LatLng searchedLocation = LatLng(lat, lng);
+
         setState(() {
-          _destination = LatLng(lat, lng);
+          _destination = searchedLocation;
           _updateMarkers();
           _getDirections(_currentLocation, _destination!);
         });
@@ -293,11 +339,9 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
       _isNavigating = true;
       _currentStepIndex = 0; // Reset to the first step
     });
-
     // Simulate navigation based on navigation steps
     for (int i = 0; i < _navigationSteps.length; i++) {
       if (!_isNavigating) break; // Stop if navigation is canceled
-
       // Read out the current step's instruction using TTS
       String instruction = _navigationSteps[i]['instructions'];
       await _flutterTts.speak(instruction);
@@ -341,9 +385,6 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     setState(() {
       _isNavigating = false;
     });
-
-    // Announce arrival at the destination
-    await _flutterTts.speak("You have arrived at your destination.");
   }
 
   Widget _buildNavigationPanel() {
@@ -388,7 +429,8 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
                               : FontWeight.normal,
                         ),
                       ),
-                      subtitle: Text("${step['distance']} (${step['duration']})"),
+                      subtitle:
+                          Text("${step['distance']} (${step['duration']})"),
                       tileColor: isCurrentStep ? Colors.blue.shade100 : null,
                     );
                   },
@@ -428,7 +470,8 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
                           hintText: "Search Location...",
                           filled: true,
                           fillColor: Colors.white,
-                          prefixIcon: const Icon(Icons.search, color: Colors.blue),
+                          prefixIcon:
+                              const Icon(Icons.search, color: Colors.blue),
                           suffixIcon: IconButton(
                             icon: Icon(
                               _isListening ? Icons.mic_off : Icons.mic,
@@ -454,15 +497,21 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
                 ),
               ),
               Expanded(
-                child: GoogleMap(
-                  onMapCreated: (controller) {
-                    mapController = controller;
-                  },
-                  polylines: _polylines,
-                  initialCameraPosition:
-                      CameraPosition(target: _currentLocation, zoom: 14.0),
-                  markers: _markers,
-                ),
+                child: _isLoading
+                    ? const Center(
+                        child: CircularProgressIndicator(),
+                      )
+                    : GoogleMap(
+                        onMapCreated: (controller) {
+                          mapController = controller;
+                        },
+                        polylines: _polylines,
+                        markers: _markers,
+                        initialCameraPosition: CameraPosition(
+                          target: _currentLocation,
+                          zoom: 14.0, // Adjust zoom level as needed
+                        ),
+                      ),
               ),
             ],
           ),
@@ -484,6 +533,13 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
             tooltip: "Start/Stop Navigation",
             enableFeedback: true,
             child: Icon(_isNavigating ? Icons.stop : Icons.navigation),
+          ),
+          const SizedBox(height: 16),
+          FloatingActionButton(
+            onPressed: _startListening,
+            tooltip: "Process Voice Command",
+            enableFeedback: true,
+            child: Icon(_isListening ? Icons.stop : Icons.mic),
           ),
         ],
       ),
