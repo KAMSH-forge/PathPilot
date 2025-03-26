@@ -7,6 +7,8 @@ import 'package:google_polyline_algorithm/google_polyline_algorithm.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:html/parser.dart' as html_parser;
+import 'package:sensors_plus/sensors_plus.dart';
+import 'dart:math';
 
 class GoogleMapPage extends StatefulWidget {
   const GoogleMapPage({super.key});
@@ -33,6 +35,8 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
   List<Map<String, dynamic>> _navigationSteps = [];
   int _currentStepIndex = 0;
   late FlutterTts _flutterTts;
+  late BitmapDescriptor _customMarkerIcon;
+  double _currentHeading = 0.0; // Stores the current compass heading
 
   // Speech-to-Text Variables
   final stt.SpeechToText _speech = stt.SpeechToText();
@@ -42,9 +46,28 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
   void initState() {
     super.initState();
     _initializeTts();
-    _getUserLocation();
+    // _getUserLocation();
     _initSpeech();
+    _startContinuousListening();
+    _loadCustomMarkerIcon();
+
+      magnetometerEvents.listen((MagnetometerEvent event) {
+    // Convert raw magnetometer data to heading (compass direction)
+    double heading = _calculateHeading(event);
+    setState(() {
+      _currentHeading = heading;
+    });
+  });
   }
+
+
+  double _calculateHeading(MagnetometerEvent event) {
+  double x = event.x;
+  double y = event.y;
+  // Calculate the heading in degrees (0 = North, 90 = East, etc.)
+  double heading = (atan2(y, x) * (180 / pi)) + 180;
+  return heading;
+}
 
   void _initializeTts() {
     _flutterTts = FlutterTts();
@@ -54,6 +77,18 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     _flutterTts.setPitch(1.0);
   }
 
+@override
+void dispose() {
+  // Stop continuous listening if active
+  _stopContinuousListening();
+  // Cancel any ongoing speech recognition tasks
+  _speech.cancel();
+  // Release TTS resources
+  _flutterTts.stop();
+  // Call the parent class's dispose method
+  super.dispose();
+}
+
   Future<void> _initSpeech() async {
     bool available = await _speech.initialize();
     if (!available) {
@@ -61,43 +96,64 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     }
   }
 
-  void _startListening() async {
-    if (_isListening) {
-      setState(() {
-        _isListening = false;
-        _searchController.clear();
-      });
-      _speech.stop();
+  void _startContinuousListening() async {
+    bool available = await _speech.initialize();
+    if (!available) {
+      print('Speech recognition is not available');
       return;
     }
-
-    bool available = await _speech.initialize();
-    if (available) {
-      setState(() => _isListening = true);
-      _speech.listen(onResult: (result) {
-        setState(() {
-          _searchController.text = result.recognizedWords;
+    setState(() {
+      _isListening = true; // Indicate that listening has started
+    });
+    // Announce instructions using TTS
+    await _flutterTts.speak(
+        "Welcome to Path Pilot! To use the app, say 'Path Pilot' followed by a command. "
+        "For example, say 'Path Pilot, take me to [destination]' to navigate, or say "
+        "'Path Pilot, where am I?' to get your current location. Listening now...");
+    // Continuously listen for voice commands
+    while (_isListening) {
+      try {
+        await _speech.listen(onResult: (result) {
+          if (result.finalResult) {
+            String recognizedText = result.recognizedWords;
+            print("Recognized Text: $recognizedText");
+            _processVoiceCommand(recognizedText); // Process the command
+          }
         });
-        if (result.finalResult) {
-          _processVoiceCommand(result.recognizedWords);
-          _stopListening();
-        }
-      });
+        // Wait for a short duration before restarting listening
+        await Future.delayed(const Duration(seconds: 1));
+      } catch (e) {
+        print("Error during speech recognition: $e");
+        break; // Exit the loop if an error occurs
+      }
     }
+
+    setState(() {
+      _isListening = false; // Update state when listening stops
+    });
   }
 
-  void _stopListening() {
+  Future<void> _loadCustomMarkerIcon() async {
+  _customMarkerIcon = await BitmapDescriptor.fromAssetImage(
+    const ImageConfiguration(),
+    'assets/images/navIcon2.png',
+  );
+}
+
+
+  void _stopContinuousListening() {
     setState(() {
-      _isListening = false;
+      _isListening = false; // Stop the listening loop
     });
-    _speech.stop();
+    _speech.stop(); // Stop the speech recognition service
+    _flutterTts.speak("Stopped listening."); // Notify the user via TTS
   }
 
   void _processVoiceCommand(String recognizedText) {
-    if (recognizedText.toLowerCase().contains("path pilot")) {
+    if (recognizedText.toLowerCase().contains("pilot")) {
       // Extract the command after "Pathpilot"
       String command =
-          recognizedText.toLowerCase().replaceAll("path pilot", "").trim();
+          recognizedText.toLowerCase().replaceAll("pilot", "").trim();
       if (command.contains("take me to")) {
         // Handle destination search command
         String destinationQuery = command.replaceAll("take me to", "").trim();
@@ -114,6 +170,12 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
           command.contains("tell me my location")) {
         // Handle current location command
         _getUserLocation();
+      } else if (command.contains("stop")) {
+        _stopNavigation();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Navigation stopped.")),
+        );
+        _flutterTts.speak("Navigation stopped.");
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Command not recognized. Try again.")),
@@ -129,45 +191,55 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     }
   }
 
+  void _stopNavigation() {
+    setState(() {
+      _isNavigating = false; // Stop navigation
+      _currentStepIndex = 0; // Reset step index
+      _navigationSteps.clear(); // Clear navigation steps
+      _polylines.clear(); // Clear polylines
+      _destination = null; // Clear destination
+      _updateMarkers(); // Clear destination marker
+    });
+    if (mounted && mapController != null) {
+      mapController
+      .animateCamera(CameraUpdate.newLatLngZoom(_currentLocation, 14));
+    }
+    // Optionally, announce that navigation has stopped
+    _flutterTts.speak("Navigation stopped.");
+  }
+
   Future<void> _getUserLocation() async {
     if (_isNavigating) {
-      // Stop navigation if it's currently active
-      setState(() {
-        _isNavigating = false; // stop navigation
-        _currentStepIndex = 0; // Reset step index
-        _navigationSteps.clear(); // Clear navigation steps
-        _polylines.clear(); // Clear polyline
-      });
+      _stopNavigation();
     }
-
     setState(() {
       _isLoading = true;
     });
-
-    loc.Location _locationController = loc.Location();
-    bool serviceEnabled = await _locationController.serviceEnabled();
+    loc.Location locationController = loc.Location();
+    bool serviceEnabled = await locationController.serviceEnabled();
     if (!serviceEnabled) {
-      serviceEnabled = await _locationController.requestService();
+      serviceEnabled = await locationController.requestService();
       if (!serviceEnabled) return;
     }
-    loc.PermissionStatus permission = await _locationController.hasPermission();
+    loc.PermissionStatus permission = await locationController.hasPermission();
     if (permission == loc.PermissionStatus.denied) {
-      permission = await _locationController.requestPermission();
+      permission = await locationController.requestPermission();
       if (permission != loc.PermissionStatus.granted) return;
     }
 
-    _locationController.onLocationChanged
-        .listen((loc.LocationData currentLocation) {
-      if (currentLocation.latitude != null &&
-          currentLocation.longitude != null) {
-        setState(() {
-          _currentLocation =
-              LatLng(currentLocation.latitude!,currentLocation.longitude!);
-        });
-      }
-    });
+  locationController.onLocationChanged.listen((loc.LocationData currentLocation) {
+    if (currentLocation.latitude != null && currentLocation.longitude != null) {
+      setState(() {
+        _currentLocation = LatLng(currentLocation.latitude!, currentLocation.longitude!);
+        _updateMarkers();
+        if (mounted && mapController != null) {
+          mapController.animateCamera(CameraUpdate.newLatLng(_currentLocation));
+        }
+      });
+    }
+  });
 
-    loc.LocationData userLocation = await _locationController.getLocation();
+    loc.LocationData userLocation = await locationController.getLocation();
 
     setState(() {
       _currentLocation =
@@ -185,7 +257,8 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     await _speakLocation(_currentLocation);
   }
 
-  void _updateMarkers() {
+  void _updateMarkers() async{
+  // Load the custom marker icon
     setState(() {
       _markers.clear();
       _markers.add(
@@ -193,8 +266,11 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
           markerId: const MarkerId('currentLocation'),
           position: _currentLocation,
           infoWindow: const InfoWindow(title: "You are here"),
+          icon: _customMarkerIcon,
+          rotation: _currentHeading,
         ),
       );
+
       if (_destination != null) {
         _markers.add(
           Marker(
@@ -293,8 +369,8 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
             ),
           );
         }
-      _startNavigation();
-      print("starting navigation within _getDirection");
+        _startNavigation();
+        print("starting navigation within _getDirection");
       }
     } else {
       print("Error fetching directions: ${response.body}");
@@ -472,13 +548,6 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
                           fillColor: Colors.white,
                           prefixIcon:
                               const Icon(Icons.search, color: Colors.blue),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _isListening ? Icons.mic_off : Icons.mic,
-                              color: Colors.blue,
-                            ),
-                            onPressed: _startListening,
-                          ),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(30),
                             borderSide: BorderSide.none,
@@ -536,7 +605,9 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
           ),
           const SizedBox(height: 16),
           FloatingActionButton(
-            onPressed: _startListening,
+            onPressed: _isListening
+                ? _stopContinuousListening
+                : _startContinuousListening,
             tooltip: "Process Voice Command",
             enableFeedback: true,
             child: Icon(_isListening ? Icons.stop : Icons.mic),
