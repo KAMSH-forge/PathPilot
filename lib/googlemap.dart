@@ -7,6 +7,8 @@ import 'package:google_polyline_algorithm/google_polyline_algorithm.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:html/parser.dart' as html_parser;
+import 'package:shared_preferences/shared_preferences.dart';
+import 'camera_screen.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'dart:math';
 
@@ -18,6 +20,7 @@ class GoogleMapPage extends StatefulWidget {
 }
 
 class _GoogleMapPageState extends State<GoogleMapPage> {
+  late SharedPreferences _prefs;
   late GoogleMapController mapController;
   final TextEditingController _searchController = TextEditingController();
   LatLng _currentLocation =
@@ -37,7 +40,7 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
   late FlutterTts _flutterTts;
   late BitmapDescriptor _customMarkerIcon;
   double _currentHeading = 0.0; // Stores the current compass heading
-
+  bool _isCameraVisible = false; // Controls camera visibility
   // Speech-to-Text Variables
   final stt.SpeechToText _speech = stt.SpeechToText();
   bool _isListening = false;
@@ -48,26 +51,26 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     _initializeTts();
     // _getUserLocation();
     _initSpeech();
+    _loadSharedPrefAndSpeakIntro();
     _startContinuousListening();
     _loadCustomMarkerIcon();
 
-      magnetometerEvents.listen((MagnetometerEvent event) {
-    // Convert raw magnetometer data to heading (compass direction)
-    double heading = _calculateHeading(event);
-    setState(() {
-      _currentHeading = heading;
+    magnetometerEvents.listen((MagnetometerEvent event) {
+      // Convert raw magnetometer data to heading (compass direction)
+      double heading = _calculateHeading(event);
+      setState(() {
+        _currentHeading = heading;
+      });
     });
-  });
   }
 
-
   double _calculateHeading(MagnetometerEvent event) {
-  double x = event.x;
-  double y = event.y;
-  // Calculate the heading in degrees (0 = North, 90 = East, etc.)
-  double heading = (atan2(y, x) * (180 / pi)) + 180;
-  return heading;
-}
+    double x = event.x;
+    double y = event.y;
+    // Calculate the heading in degrees (0 = North, 90 = East, etc.)
+    double heading = (atan2(y, x) * (180 / pi)) + 180;
+    return heading;
+  }
 
   void _initializeTts() {
     _flutterTts = FlutterTts();
@@ -77,22 +80,38 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     _flutterTts.setPitch(1.0);
   }
 
-@override
-void dispose() {
-  // Stop continuous listening if active
-  _stopContinuousListening();
-  // Cancel any ongoing speech recognition tasks
-  _speech.cancel();
-  // Release TTS resources
-  _flutterTts.stop();
-  // Call the parent class's dispose method
-  super.dispose();
-}
+  @override
+  void dispose() {
+    // Stop continuous listening if active
+    _stopContinuousListening();
+    // Cancel any ongoing speech recognition tasks
+    _speech.cancel();
+    // Release TTS resources
+    _flutterTts.stop();
+    // Call the parent class's dispose method
+    super.dispose();
+  }
 
   Future<void> _initSpeech() async {
     bool available = await _speech.initialize();
     if (!available) {
       print('Speech recognition is not available');
+    }
+  }
+
+  Future<void> _loadSharedPrefAndSpeakIntro() async {
+    _prefs = await SharedPreferences.getInstance();
+    bool isFirstTime = _prefs.getBool('isFirstTime') ?? true;
+
+    if (isFirstTime) {
+      await _flutterTts.speak(
+        "Welcome to Path Pilot! To use the app, say 'Path Pilot' followed by a command. "
+        "For example, say 'Path Pilot, take me to [destination]' to navigate, or say "
+        "'Path Pilot, where am I?' to get your current location. Listening now...",
+      );
+
+      // Update SharedPreferences to mark that the intro has been spoken
+      await _prefs.setBool('isFirstTime', false);
     }
   }
 
@@ -105,12 +124,6 @@ void dispose() {
     setState(() {
       _isListening = true; // Indicate that listening has started
     });
-    // Announce instructions using TTS
-    await _flutterTts.speak(
-        "Welcome to Path Pilot! To use the app, say 'Path Pilot' followed by a command. "
-        "For example, say 'Path Pilot, take me to [destination]' to navigate, or say "
-        "'Path Pilot, where am I?' to get your current location. Listening now...");
-    // Continuously listen for voice commands
     while (_isListening) {
       try {
         await _speech.listen(onResult: (result) {
@@ -134,12 +147,11 @@ void dispose() {
   }
 
   Future<void> _loadCustomMarkerIcon() async {
-  _customMarkerIcon = await BitmapDescriptor.fromAssetImage(
-    const ImageConfiguration(),
-    'assets/images/navIcon2.png',
-  );
-}
-
+    _customMarkerIcon = await BitmapDescriptor.fromAssetImage(
+      const ImageConfiguration(),
+      'assets/images/navIcon2.png',
+    );
+  }
 
   void _stopContinuousListening() {
     setState(() {
@@ -202,7 +214,7 @@ void dispose() {
     });
     if (mounted && mapController != null) {
       mapController
-      .animateCamera(CameraUpdate.newLatLngZoom(_currentLocation, 14));
+          .animateCamera(CameraUpdate.newLatLngZoom(_currentLocation, 14));
     }
     // Optionally, announce that navigation has stopped
     _flutterTts.speak("Navigation stopped.");
@@ -227,17 +239,21 @@ void dispose() {
       if (permission != loc.PermissionStatus.granted) return;
     }
 
-  locationController.onLocationChanged.listen((loc.LocationData currentLocation) {
-    if (currentLocation.latitude != null && currentLocation.longitude != null) {
-      setState(() {
-        _currentLocation = LatLng(currentLocation.latitude!, currentLocation.longitude!);
-        _updateMarkers();
-        if (mounted && mapController != null) {
-          mapController.animateCamera(CameraUpdate.newLatLng(_currentLocation));
-        }
-      });
-    }
-  });
+    locationController.onLocationChanged
+        .listen((loc.LocationData currentLocation) {
+      if (currentLocation.latitude != null &&
+          currentLocation.longitude != null) {
+        setState(() {
+          _currentLocation =
+              LatLng(currentLocation.latitude!, currentLocation.longitude!);
+          _updateMarkers();
+          if (mounted && mapController != null) {
+            mapController
+                .animateCamera(CameraUpdate.newLatLng(_currentLocation));
+          }
+        });
+      }
+    });
 
     loc.LocationData userLocation = await locationController.getLocation();
 
@@ -257,8 +273,8 @@ void dispose() {
     await _speakLocation(_currentLocation);
   }
 
-  void _updateMarkers() async{
-  // Load the custom marker icon
+  void _updateMarkers() async {
+    // Load the custom marker icon
     setState(() {
       _markers.clear();
       _markers.add(
@@ -519,101 +535,130 @@ void dispose() {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Google Map'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context), // Go back to previous screen
-        ),
+@override
+Widget build(BuildContext context) {
+  return Scaffold(
+    appBar: AppBar(
+      title: const Text('Map'),
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back),
+        onPressed: () => Navigator.pop(context), // Go back to previous screen
       ),
-      body: Stack(
-        children: [
-          Column(
-            children: [
-              // Navigation Panel at the Top
-              _buildNavigationPanel(),
-              Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _searchController,
-                        decoration: InputDecoration(
-                          hintText: "Search Location...",
-                          filled: true,
-                          fillColor: Colors.white,
-                          prefixIcon:
-                              const Icon(Icons.search, color: Colors.blue),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(30),
-                            borderSide: BorderSide.none,
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                              vertical: 14, horizontal: 20),
-                        ),
-                        textInputAction: TextInputAction.search,
-                        onSubmitted: (value) {
-                          _searchLocation();
-                        },
+    ),
+    body: Stack(
+      children: [
+        Column(
+          children: [
+            // Navigation Panel at the Top
+            _buildNavigationPanel(),
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Row(
+                children: [
+                  // Expanded(
+                  //   child: TextField(
+                  //     controller: _searchController,
+                  //     decoration: InputDecoration(
+                  //       hintText: "Search Location...",
+                  //       filled: true,
+                  //       fillColor: Colors.white,
+                  //       prefixIcon:
+                  //           const Icon(Icons.search, color: Colors.blue),
+                  //       border: OutlineInputBorder(
+                  //         borderRadius: BorderRadius.circular(30),
+                  //         borderSide: BorderSide.none,
+                  //       ),
+                  //       contentPadding: const EdgeInsets.symmetric(
+                  //           vertical: 14, horizontal: 20),
+                  //     ),
+                  //     textInputAction: TextInputAction.search,
+                  //     onSubmitted: (value) {
+                  //       _searchLocation();
+                  //     },
+                  //   ),
+                  // ),
+                  const SizedBox(width: 8),
+                ],
+              ),
+            ),
+            Expanded(
+              child: _isLoading
+                  ? const Center(
+                      child: CircularProgressIndicator(),
+                    )
+                  : GoogleMap(
+                      onMapCreated: (controller) {
+                        mapController = controller;
+                      },
+                      polylines: _polylines,
+                      markers: _markers,
+                      initialCameraPosition: CameraPosition(
+                        target: _currentLocation,
+                        zoom: 14.0, // Adjust zoom level as needed
                       ),
                     ),
-                    const SizedBox(width: 8),
-                  ],
+            ),
+          ],
+        ),
+
+        // Floating Camera Preview
+        if (_isCameraVisible)
+          Positioned(
+            right: 16,
+            bottom: 100, // Position above the floating action buttons
+            child: SizedBox(
+              width: 150,
+              height: 200,
+              child: Card(
+                elevation: 4,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: const CameraScreen(), // Use the imported CameraScreen
                 ),
               ),
-              Expanded(
-                child: _isLoading
-                    ? const Center(
-                        child: CircularProgressIndicator(),
-                      )
-                    : GoogleMap(
-                        onMapCreated: (controller) {
-                          mapController = controller;
-                        },
-                        polylines: _polylines,
-                        markers: _markers,
-                        initialCameraPosition: CameraPosition(
-                          target: _currentLocation,
-                          zoom: 14.0, // Adjust zoom level as needed
-                        ),
-                      ),
-              ),
-            ],
+            ),
           ),
-        ],
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
-      floatingActionButton: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          FloatingActionButton(
-            onPressed: _getUserLocation,
-            tooltip: "Go to my location",
-            enableFeedback: true,
-            child: const Icon(Icons.my_location),
-          ),
-          const SizedBox(height: 16),
-          FloatingActionButton(
-            onPressed: _isNavigating ? null : _startNavigation,
-            tooltip: "Start/Stop Navigation",
-            enableFeedback: true,
-            child: Icon(_isNavigating ? Icons.stop : Icons.navigation),
-          ),
-          const SizedBox(height: 16),
-          FloatingActionButton(
-            onPressed: _isListening
-                ? _stopContinuousListening
-                : _startContinuousListening,
-            tooltip: "Process Voice Command",
-            enableFeedback: true,
-            child: Icon(_isListening ? Icons.stop : Icons.mic),
-          ),
-        ],
-      ),
-    );
-  }
+      ],
+    ),
+    floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
+    floatingActionButton: Column(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        FloatingActionButton(
+          onPressed: _getUserLocation,
+          tooltip: "Go to my location",
+          enableFeedback: true,
+          child: const Icon(Icons.my_location),
+        ),
+        const SizedBox(height: 16),
+        FloatingActionButton(
+          onPressed: _isNavigating ? null : _startNavigation,
+          tooltip: "Start/Stop Navigation",
+          enableFeedback: true,
+          child: Icon(_isNavigating ? Icons.stop : Icons.navigation),
+        ),
+        const SizedBox(height: 16),
+        FloatingActionButton(
+          onPressed: _isListening
+              ? _stopContinuousListening
+              : _startContinuousListening,
+          tooltip: "Process Voice Command",
+          enableFeedback: true,
+          child: Icon(_isListening ? Icons.stop : Icons.mic),
+        ),
+        const SizedBox(height: 16),
+        FloatingActionButton(
+          onPressed: () {
+            setState(() {
+              _isCameraVisible =
+                  !_isCameraVisible; // Toggle camera visibility
+            });
+          },
+          tooltip: "Toggle Camera",
+          child: const Icon(Icons.camera_alt),
+        ),
+      ],
+    ),
+  );
+}
 }
