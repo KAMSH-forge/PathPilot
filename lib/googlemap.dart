@@ -9,6 +9,7 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:html/parser.dart' as html_parser;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'camera_screen.dart';
+import 'voice_command_handler.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'dart:math';
 
@@ -20,16 +21,12 @@ class GoogleMapPage extends StatefulWidget {
 }
 
 class _GoogleMapPageState extends State<GoogleMapPage> {
+  
   late SharedPreferences _prefs;
   late GoogleMapController mapController;
   final TextEditingController _searchController = TextEditingController();
-  LatLng _currentLocation =
-      const LatLng(11.085541, -7.719945); // Default location (ABU Zaria)
+  LatLng _currentLocation = const LatLng(11.085541, -7.719945); // Default location (ABU Zaria)
   LatLng? _destination;
-  final LatLngBounds abuZariaBounds = LatLngBounds(
-    southwest: LatLng(11.0800, 7.6900), // Southwest corner
-    northeast: LatLng(11.0900, 7.7100), // Northeast corner
-  );
   Set<Polyline> _polylines = {};
   Set<Marker> _markers = {};
   final String _apiKey = "AIzaSyC_p8YHhBBEjDMsniEZYd4vzF73QEaGY7o";
@@ -41,22 +38,36 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
   late BitmapDescriptor _customMarkerIcon;
   double _currentHeading = 0.0; // Stores the current compass heading
   bool _isCameraVisible = false; // Controls camera visibility
-  // Speech-to-Text Variables
-  final stt.SpeechToText _speech = stt.SpeechToText();
+  final stt.SpeechToText _speech = stt.SpeechToText();// Speech-to-Text Variables
   bool _isListening = false;
+  bool _isMapPrimary = true;
+  bool _isMapOnTop = true; // Controls whether the map is on top or the camera is on top
+  // late VoiceCommandHandler _voiceCommandHandler;
 
+  // Initialized as soon as map page loads
   @override
   void initState() {
     super.initState();
     _initializeTts();
-    // _getUserLocation();
     _initSpeech();
     _loadSharedPrefAndSpeakIntro();
     _startContinuousListening();
     _loadCustomMarkerIcon();
-
-    magnetometerEvents.listen((MagnetometerEvent event) {
+        // Initialize the VoiceCommandHandler
+    // _voiceCommandHandler = VoiceCommandHandler(
+    //   showFeedback: _showFeedback,
+    //   getDestination: _getDestination,
+    //   getUserLocation: () => _getUserLocation(),
+    //   stopNavigation: _stopNavigation,
+    //   togglePrimaryView: _togglePrimaryView,
+    //   toggleCameraVisibility: (visible) {
+    //     setState(() {
+    //       _isCameraVisible = visible;
+    //     });
+    //   },
+    // );
       // Convert raw magnetometer data to heading (compass direction)
+    magnetometerEvents.listen((MagnetometerEvent event) {
       double heading = _calculateHeading(event);
       setState(() {
         _currentHeading = heading;
@@ -99,21 +110,27 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     }
   }
 
+    // Helper for showing feedback via SnackBar and TTS
+  void _showFeedback(String message) {
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    _flutterTts.speak(message);
+  }
+
   Future<void> _loadSharedPrefAndSpeakIntro() async {
     _prefs = await SharedPreferences.getInstance();
     bool isFirstTime = _prefs.getBool('isFirstTime') ?? true;
-
     if (isFirstTime) {
       await _flutterTts.speak(
         "Welcome to Path Pilot! To use the app, say 'Path Pilot' followed by a command. "
         "For example, say 'Path Pilot, take me to [destination]' to navigate, or say "
         "'Path Pilot, where am I?' to get your current location. Listening now...",
       );
-
       // Update SharedPreferences to mark that the intro has been spoken
       await _prefs.setBool('isFirstTime', false);
     }
   }
+
 
   void _startContinuousListening() async {
     bool available = await _speech.initialize();
@@ -140,7 +157,6 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
         break; // Exit the loop if an error occurs
       }
     }
-
     setState(() {
       _isListening = false; // Update state when listening stops
     });
@@ -161,6 +177,7 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     _flutterTts.speak("Stopped listening."); // Notify the user via TTS
   }
 
+// NEEDS THOROUGH IMPLEMENTATION
   void _processVoiceCommand(String recognizedText) {
     if (recognizedText.toLowerCase().contains("pilot")) {
       // Extract the command after "Pathpilot"
@@ -171,7 +188,7 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
         String destinationQuery = command.replaceAll("take me to", "").trim();
         if (destinationQuery.isNotEmpty) {
           _searchController.text = destinationQuery; // Update search bar
-          _searchLocation(); // Search for the destination
+          _getDestination(); // Search for the destination
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text("Please specify a destination.")),
@@ -238,7 +255,6 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
       permission = await locationController.requestPermission();
       if (permission != loc.PermissionStatus.granted) return;
     }
-
     locationController.onLocationChanged
         .listen((loc.LocationData currentLocation) {
       if (currentLocation.latitude != null &&
@@ -254,24 +270,21 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
         });
       }
     });
-
     loc.LocationData userLocation = await locationController.getLocation();
-
     setState(() {
-      _currentLocation =
-          LatLng(userLocation.latitude!, userLocation.longitude!);
+      _currentLocation =LatLng(userLocation.latitude!, userLocation.longitude!);
       _destination = null;
       _updateMarkers();
       _polylines.clear();
       _isLoading = false;
     });
-
     if (mounted && mapController != null) {
       mapController
           .animateCamera(CameraUpdate.newLatLngZoom(_currentLocation, 14));
     }
     await _speakLocation(_currentLocation);
   }
+
 
   void _updateMarkers() async {
     // Load the custom marker icon
@@ -299,7 +312,9 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     });
   }
 
+
   Future<void> _speakLocation(LatLng location) async {
+    // DECODE ADDRESS BETTER!!!
     try {
       final String url =
           "https://maps.googleapis.com/maps/api/geocode/json?latlng=${location.latitude},${location.longitude}&key=$_apiKey";
@@ -348,8 +363,7 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
               width: 5,
             ),
           );
-        });
-        // Extract navigation steps
+        });// Extract navigation steps
         List<dynamic> steps = data['routes'][0]['legs'][0]['steps'];
         print(steps);
         setState(() {
@@ -393,7 +407,7 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     }
   }
 
-  Future<void> _searchLocation() async {
+  Future<void> _getDestination() async {
     String query = _searchController.text;
     if (query.isEmpty) return;
     final String url =
@@ -407,10 +421,10 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
           data["candidates"][0]["geometry"] != null) {
         double lat = data["candidates"][0]["geometry"]["location"]["lat"];
         double lng = data["candidates"][0]["geometry"]["location"]["lng"];
-        LatLng searchedLocation = LatLng(lat, lng);
+        LatLng location = LatLng(lat, lng);
 
         setState(() {
-          _destination = searchedLocation;
+          _destination = location;
           _updateMarkers();
           _getDirections(_currentLocation, _destination!);
         });
@@ -479,6 +493,16 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     });
   }
 
+    // Toggle between Map Primary and Camera Primary views
+  void _togglePrimaryView() {
+    setState(() {
+      _isMapPrimary = !_isMapPrimary;
+      if (!_isMapPrimary) {
+        _isCameraVisible = true; // Ensure PiP is visible when switching to camera primary
+      }
+    });
+  }
+
   Widget _buildNavigationPanel() {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
@@ -521,8 +545,7 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
                               : FontWeight.normal,
                         ),
                       ),
-                      subtitle:
-                          Text("${step['distance']} (${step['duration']})"),
+                      subtitle:Text("${step['distance']} (${step['duration']})"),
                       tileColor: isCurrentStep ? Colors.blue.shade100 : null,
                     );
                   },
@@ -535,130 +558,129 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     );
   }
 
-@override
-Widget build(BuildContext context) {
-  return Scaffold(
-    appBar: AppBar(
-      title: const Text('Map'),
-      leading: IconButton(
-        icon: const Icon(Icons.arrow_back),
-        onPressed: () => Navigator.pop(context), // Go back to previous screen
-      ),
-    ),
-    body: Stack(
-      children: [
-        Column(
-          children: [
-            // Navigation Panel at the Top
-            _buildNavigationPanel(),
-            Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: Row(
-                children: [
-                  // Expanded(
-                  //   child: TextField(
-                  //     controller: _searchController,
-                  //     decoration: InputDecoration(
-                  //       hintText: "Search Location...",
-                  //       filled: true,
-                  //       fillColor: Colors.white,
-                  //       prefixIcon:
-                  //           const Icon(Icons.search, color: Colors.blue),
-                  //       border: OutlineInputBorder(
-                  //         borderRadius: BorderRadius.circular(30),
-                  //         borderSide: BorderSide.none,
-                  //       ),
-                  //       contentPadding: const EdgeInsets.symmetric(
-                  //           vertical: 14, horizontal: 20),
-                  //     ),
-                  //     textInputAction: TextInputAction.search,
-                  //     onSubmitted: (value) {
-                  //       _searchLocation();
-                  //     },
-                  //   ),
-                  // ),
-                  const SizedBox(width: 8),
-                ],
-              ),
-            ),
-            Expanded(
-              child: _isLoading
-                  ? const Center(
-                      child: CircularProgressIndicator(),
-                    )
-                  : GoogleMap(
-                      onMapCreated: (controller) {
-                        mapController = controller;
-                      },
-                      polylines: _polylines,
-                      markers: _markers,
-                      initialCameraPosition: CameraPosition(
-                        target: _currentLocation,
-                        zoom: 14.0, // Adjust zoom level as needed
-                      ),
-                    ),
-            ),
-          ],
-        ),
 
-        // Floating Camera Preview
-        if (_isCameraVisible)
-          Positioned(
-            right: 16,
-            bottom: 100, // Position above the floating action buttons
-            child: SizedBox(
-              width: 150,
-              height: 200,
-              child: Card(
-                elevation: 4,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: const CameraScreen(), // Use the imported CameraScreen
+
+  // Build the Google Map Widget
+  Widget _buildMapWidget() {
+    return GoogleMap(
+      onMapCreated: (controller) {
+        mapController = controller;
+      },
+      polylines: _polylines,
+      markers: _markers,
+      initialCameraPosition: CameraPosition(
+        target: _currentLocation,
+        zoom: 14.0,
+      ),
+    );
+  }
+
+  // Build the Camera Preview Widget using the imported CameraScreen
+  Widget _buildCameraWidget() {
+    return const CameraScreen();
+  }
+
+  // Build a Thumbnail Version of the Map for PiP
+  Widget _buildMapThumbnail() {
+    return GoogleMap(
+      onMapCreated: (controller) {},
+      polylines: _polylines,
+      markers: _markers,
+      initialCameraPosition: CameraPosition(
+        target: _currentLocation,
+        zoom: 9.0, // Smaller zoom level for thumbnail
+      ),
+      myLocationEnabled: false,
+      myLocationButtonEnabled: false,
+      zoomControlsEnabled: false,
+      mapToolbarEnabled: false,
+      compassEnabled: false,
+      scrollGesturesEnabled: false,
+      zoomGesturesEnabled: false,
+      tiltGesturesEnabled: false,
+      rotateGesturesEnabled: false,
+    );
+  }
+
+
+@override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Map'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context), // Go back to previous screen
+        ),
+      ),
+      body: Stack(
+        children: [
+          // Main View (Map or Camera)
+          _isMapPrimary ? _buildMapWidget() : _buildCameraWidget(),
+
+          // Picture-in-Picture (PiP) View
+          if (_isCameraVisible)
+            Positioned(
+              right: 16,
+              bottom: 100, // Position above the floating action buttons
+              child: SizedBox(
+                width: 150,
+                height: 200,
+                child: Card(
+                  elevation: 4,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: _isMapPrimary ? const CameraScreen() : _buildMapThumbnail(),
+                  ),
                 ),
               ),
             ),
+        ],
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
+      floatingActionButton: Column(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          FloatingActionButton(
+            onPressed: _getUserLocation,
+            tooltip: "Go to my location",
+            enableFeedback: true,
+            child: const Icon(Icons.my_location),
           ),
-      ],
-    ),
-    floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
-    floatingActionButton: Column(
-      mainAxisAlignment: MainAxisAlignment.end,
-      children: [
-        FloatingActionButton(
-          onPressed: _getUserLocation,
-          tooltip: "Go to my location",
-          enableFeedback: true,
-          child: const Icon(Icons.my_location),
-        ),
-        const SizedBox(height: 16),
-        FloatingActionButton(
-          onPressed: _isNavigating ? null : _startNavigation,
-          tooltip: "Start/Stop Navigation",
-          enableFeedback: true,
-          child: Icon(_isNavigating ? Icons.stop : Icons.navigation),
-        ),
-        const SizedBox(height: 16),
-        FloatingActionButton(
-          onPressed: _isListening
-              ? _stopContinuousListening
-              : _startContinuousListening,
-          tooltip: "Process Voice Command",
-          enableFeedback: true,
-          child: Icon(_isListening ? Icons.stop : Icons.mic),
-        ),
-        const SizedBox(height: 16),
-        FloatingActionButton(
-          onPressed: () {
-            setState(() {
-              _isCameraVisible =
-                  !_isCameraVisible; // Toggle camera visibility
-            });
-          },
-          tooltip: "Toggle Camera",
-          child: const Icon(Icons.camera_alt),
-        ),
-      ],
-    ),
-  );
-}
+          const SizedBox(height: 16),
+          FloatingActionButton(
+            onPressed: _isNavigating ? null : _startNavigation,
+            tooltip: "Start/Stop Navigation",
+            enableFeedback: true,
+            child: Icon(_isNavigating ? Icons.stop : Icons.navigation),
+          ),
+          const SizedBox(height: 16),
+          FloatingActionButton(
+            onPressed: _isListening
+                ? _stopContinuousListening
+                : _startContinuousListening,
+            tooltip: "Process Voice Command",
+            enableFeedback: true,
+            child: Icon(_isListening ? Icons.stop : Icons.mic),
+          ),
+          const SizedBox(height: 16),
+          FloatingActionButton(
+            onPressed: () {
+              setState(() {
+                _isCameraVisible = !_isCameraVisible; // Toggle camera visibility
+              });
+            },
+            tooltip: "Toggle Camera",
+            child: const Icon(Icons.camera_alt),
+          ),
+          const SizedBox(height: 16),
+          FloatingActionButton(
+            onPressed: _togglePrimaryView,
+            tooltip: "Switch Main View",
+            child: Icon(_isMapPrimary ? Icons.cameraswitch_outlined : Icons.map_outlined),
+          ),
+        ],
+      ),
+    );
+  }
 }

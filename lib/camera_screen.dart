@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class CameraScreen extends StatefulWidget {
   const CameraScreen({super.key});
@@ -10,7 +11,7 @@ class CameraScreen extends StatefulWidget {
 
 class _CameraScreenState extends State<CameraScreen> {
   late CameraController _controller;
-  Future<void>? _initializeControllerFuture; // Make it nullable
+  Future<void>? _initializeControllerFuture;
   List<CameraDescription>? cameras;
 
   @override
@@ -19,15 +20,26 @@ class _CameraScreenState extends State<CameraScreen> {
     _setupCamera();
   }
 
+  Future<bool> _requestCameraPermission() async {
+    final status = await Permission.camera.request();
+    return status.isGranted;
+  }
+
   Future<void> _setupCamera() async {
+    if (!await _requestCameraPermission()) {
+      print("Camera permission denied.");
+      return;
+    }
+
     try {
       cameras = await availableCameras();
       if (cameras!.isNotEmpty) {
         _controller = CameraController(
-          cameras![0], // Use the first camera
+          cameras![0],
           ResolutionPreset.low,
+          enableAudio: false, // Disable audio if not needed
         );
-        _initializeControllerFuture = _controller.initialize(); // Initialize the future
+        _initializeControllerFuture = _controller.initialize();
       }
     } catch (e) {
       print("Error initializing camera: $e");
@@ -43,7 +55,7 @@ class _CameraScreenState extends State<CameraScreen> {
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<void>(
-      future: _initializeControllerFuture, // Access the nullable future
+      future: _initializeControllerFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.done) {
           return AspectRatio(
@@ -51,7 +63,18 @@ class _CameraScreenState extends State<CameraScreen> {
             child: CameraPreview(_controller),
           );
         } else {
-          return const Center(child: CircularProgressIndicator());
+          return Scaffold(
+            body: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: const [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text("Loading camera..."),
+                ],
+              ),
+            ),
+          );
         }
       },
     );
