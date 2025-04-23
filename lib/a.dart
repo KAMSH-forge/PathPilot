@@ -186,3 +186,31 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     });
   }
 }
+
+
+Future<void> _getDestination() async {
+    String query = _searchController.text;
+    if (query.isEmpty) return;
+    final String url =
+        "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
+        "?input=$query&inputtype=textquery&fields=geometry&key=$_apiKey";
+    final response = await http.get(Uri.parse(url));
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      if (data["candidates"] != null &&
+          data["candidates"].isNotEmpty &&
+          data["candidates"][0]["geometry"] != null) {
+        double lat = data["candidates"][0]["geometry"]["location"]["lat"];
+        double lng = data["candidates"][0]["geometry"]["location"]["lng"];
+        LatLng location = LatLng(lat, lng);
+
+        setState(() {
+          _destination = location;
+          _updateMarkers();
+          _getDirections(_currentLocation, _destination!);
+        });
+      }
+    } else {
+      print("Error: ${response.body}");
+    }
+  }

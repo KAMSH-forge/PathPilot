@@ -73,7 +73,8 @@ class VoiceCommandHandler {
           .trim();
       if (destinationQuery.isNotEmpty) {
         // Update the search controller and call getDestination
-        getDestination(); // Call the callback
+        getDestination(destinationQuery); // Call the callback
+        print("Destination: ${destinationQuery}");
         return true;
       } else {
         showFeedback("Please specify a destination after 'take me to'.");

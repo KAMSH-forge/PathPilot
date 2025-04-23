@@ -42,7 +42,7 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
   bool _isListening = false;
   bool _isMapPrimary = true;
   bool _isMapOnTop = true; // Controls whether the map is on top or the camera is on top
-  // late VoiceCommandHandler _voiceCommandHandler;
+  late VoiceCommandHandler _voiceCommandHandler;
 
   // Initialized as soon as map page loads
   @override
@@ -54,18 +54,18 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     _startContinuousListening();
     _loadCustomMarkerIcon();
         // Initialize the VoiceCommandHandler
-    // _voiceCommandHandler = VoiceCommandHandler(
-    //   showFeedback: _showFeedback,
-    //   getDestination: _getDestination,
-    //   getUserLocation: () => _getUserLocation(),
-    //   stopNavigation: _stopNavigation,
-    //   togglePrimaryView: _togglePrimaryView,
-    //   toggleCameraVisibility: (visible) {
-    //     setState(() {
-    //       _isCameraVisible = visible;
-    //     });
-    //   },
-    // );
+    _voiceCommandHandler = VoiceCommandHandler(
+      showFeedback: _showFeedback,
+      getDestination: _getDestinationFromSearch,
+      getUserLocation: () => _getUserLocation(),
+      stopNavigation: _stopNavigation,
+      togglePrimaryView: _togglePrimaryView,
+      toggleCameraVisibility: (visible) {
+        setState(() {
+          _isCameraVisible = visible;
+        });
+      },
+    );
       // Convert raw magnetometer data to heading (compass direction)
     magnetometerEvents.listen((MagnetometerEvent event) {
       double heading = _calculateHeading(event);
@@ -132,35 +132,59 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
   }
 
 
-  void _startContinuousListening() async {
-    bool available = await _speech.initialize();
-    if (!available) {
-      print('Speech recognition is not available');
-      return;
-    }
-    setState(() {
-      _isListening = true; // Indicate that listening has started
-    });
-    while (_isListening) {
-      try {
-        await _speech.listen(onResult: (result) {
+void _startContinuousListening() async {
+  bool available = await _speech.initialize(
+    onError: (error) => print('Speech initialization error: $error'),
+    onStatus: (status) => print('Speech status: $status'),
+  );
+  if (!available) {
+    print('Speech recognition is not available');
+    _showFeedback("Speech recognition is not available.");
+    return;
+  }
+
+  setState(() {
+    _isListening = true; // Indicate that listening has started
+  });
+
+  // Announce that the app is listening
+  _flutterTts.speak("Listening for commands...");
+
+  while (_isListening) {
+    try {
+      await _speech.listen(
+        onResult: (result) {
           if (result.finalResult) {
             String recognizedText = result.recognizedWords;
             print("Recognized Text: $recognizedText");
             _processVoiceCommand(recognizedText); // Process the command
           }
-        });
-        // Wait for a short duration before restarting listening
-        await Future.delayed(const Duration(seconds: 1));
-      } catch (e) {
-        print("Error during speech recognition: $e");
-        break; // Exit the loop if an error occurs
-      }
+        },
+        listenFor: const Duration(seconds: 10), // Timeout after 10 seconds
+        pauseFor: const Duration(seconds: 3), // Pause between utterances
+        partialResults: false, // Only process final results
+        cancelOnError: true, // Stop listening on error
+      );
+
+      // Wait before restarting listening
+      await Future.delayed(const Duration(seconds: 2));
+    } catch (e) {
+      print("Error during speech recognition: $e");
+      _showFeedback("An error occurred while listening. Please try again.");
+
+      // Reinitialize speech recognition after an error
+      await _speech.initialize();
     }
-    setState(() {
-      _isListening = false; // Update state when listening stops
-    });
   }
+
+  setState(() {
+    _isListening = false; // Update state when listening stops
+  });
+
+  // Notify the user that listening has stopped
+  _flutterTts.speak("Stopped listening.");
+}
+
 
   Future<void> _loadCustomMarkerIcon() async {
     _customMarkerIcon = await BitmapDescriptor.fromAssetImage(
@@ -179,46 +203,8 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
 
 // NEEDS THOROUGH IMPLEMENTATION
   void _processVoiceCommand(String recognizedText) {
-    if (recognizedText.toLowerCase().contains("pilot")) {
-      // Extract the command after "Pathpilot"
-      String command =
-          recognizedText.toLowerCase().replaceAll("pilot", "").trim();
-      if (command.contains("take me to")) {
-        // Handle destination search command
-        String destinationQuery = command.replaceAll("take me to", "").trim();
-        if (destinationQuery.isNotEmpty) {
-          _searchController.text = destinationQuery; // Update search bar
-          _getDestination(); // Search for the destination
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Please specify a destination.")),
-          );
-          _flutterTts.speak("Please specify a destination.");
-        }
-      } else if (command.contains("where am i") ||
-          command.contains("tell me my location")) {
-        // Handle current location command
-        _getUserLocation();
-      } else if (command.contains("stop")) {
-        _stopNavigation();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Navigation stopped.")),
-        );
-        _flutterTts.speak("Navigation stopped.");
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Command not recognized. Try again.")),
-        );
-        _flutterTts.speak("Command not recognized. Try again.");
-      }
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text("Please start your command with 'path pilot'.")),
-      );
-      _flutterTts.speak("Please start your command with 'path pilot'.");
-    }
-  }
+    _voiceCommandHandler.processVoiceCommand(recognizedText);
+  }  
 
   void _stopNavigation() {
     setState(() {
@@ -407,32 +393,72 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     }
   }
 
-  Future<void> _getDestination() async {
-    String query = _searchController.text;
-    if (query.isEmpty) return;
-    final String url =
-        "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
-        "?input=$query&inputtype=textquery&fields=geometry&key=$_apiKey";
-    final response = await http.get(Uri.parse(url));
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      if (data["candidates"] != null &&
-          data["candidates"].isNotEmpty &&
-          data["candidates"][0]["geometry"] != null) {
-        double lat = data["candidates"][0]["geometry"]["location"]["lat"];
-        double lng = data["candidates"][0]["geometry"]["location"]["lng"];
-        LatLng location = LatLng(lat, lng);
+  // Future<void> _getDestination() async {
+  //   String query = _searchController.text;
+  //   if (query.isEmpty) return;
+  //   final String url =
+  //       "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
+  //       "?input=$query&inputtype=textquery&fields=geometry&key=$_apiKey";
+  //   final response = await http.get(Uri.parse(url));
+  //   if (response.statusCode == 200) {
+  //     final data = json.decode(response.body);
+  //     if (data["candidates"] != null &&
+  //         data["candidates"].isNotEmpty &&
+  //         data["candidates"][0]["geometry"] != null) {
+  //       double lat = data["candidates"][0]["geometry"]["location"]["lat"];
+  //       double lng = data["candidates"][0]["geometry"]["location"]["lng"];
+  //       LatLng location = LatLng(lat, lng);
 
-        setState(() {
-          _destination = location;
-          _updateMarkers();
-          _getDirections(_currentLocation, _destination!);
-        });
-      }
-    } else {
-      print("Error: ${response.body}");
-    }
+  //       setState(() {
+  //         _destination = location;
+  //         _updateMarkers();
+  //         _getDirections(_currentLocation, _destination!);
+  //       });
+  //     }
+  //   } else {
+  //     print("Error: ${response.body}");
+  //   }
+  // }
+
+
+Future<void> _getDestinationFromSearch(String destinationQuery) async {
+  if (destinationQuery.isEmpty) {
+    _showFeedback("Please enter a destination to search.");
+    return;
   }
+  setState(() => _isLoading = true); // Show loading indicator
+  // Use the Google Places API to find the destination
+  final String url =
+      "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
+      "?input=$destinationQuery&inputtype=textquery&fields=geometry&key=$_apiKey";
+  final response = await http.get(Uri.parse(url));
+
+  if (response.statusCode == 200) {
+    final data = json.decode(response.body);
+    if (data["candidates"] != null &&
+        data["candidates"].isNotEmpty &&
+        data["candidates"][0]["geometry"] != null) {
+      double lat = data["candidates"][0]["geometry"]["location"]["lat"];
+      double lng = data["candidates"][0]["geometry"]["location"]["lng"];
+      LatLng location = LatLng(lat, lng);
+
+      setState(() {
+        _destination = location;
+        _updateMarkers(); // Update markers
+        _getDirections(_currentLocation, _destination!); // Get directions
+        // _isLoading = false; // Hide loading indicator
+      });
+    } else {
+      _showFeedback("Could not find location: '$destinationQuery'. Please try a different search term.");
+    }
+  } else {
+    print("Error searching for destination: ${response.statusCode} ${response.body}");
+    _showFeedback("An error occurred while searching for the destination.");
+  }
+
+  // setState(() => _isLoading = false); // Ensure loading indicator is hidden
+}
+
 
   Future<void> _startNavigation() async {
     if (_destination == null || _navigationSteps.isEmpty) {
@@ -615,6 +641,8 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
       ),
       body: Stack(
         children: [
+           _buildNavigationPanel(),
+      
           // Main View (Map or Camera)
           _isMapPrimary ? _buildMapWidget() : _buildCameraWidget(),
 
