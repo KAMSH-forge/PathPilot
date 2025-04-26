@@ -83,6 +83,9 @@ flutter:
   assets:
     - assets/images/navIcon1.png
     - assets/images/navIcon2.png
+    - assets/yolov8n.tflite
+    - assets/labels.txt
+    
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
