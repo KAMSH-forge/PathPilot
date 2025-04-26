@@ -8,6 +8,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:html/parser.dart' as html_parser;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'SpeechRecognitionManager.dart';
 import 'camera_screen.dart';
 import 'voice_command_handler.dart';
 import 'package:sensors_plus/sensors_plus.dart';
@@ -43,6 +44,7 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
   bool _isMapPrimary = true;
   bool _isMapOnTop = true; // Controls whether the map is on top or the camera is on top
   late VoiceCommandHandler _voiceCommandHandler;
+  late SpeechRecognitionManager _speechRecognitionManager;
 
   // Initialized as soon as map page loads
   @override
@@ -131,12 +133,13 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     }
   }
 
-
 void _startContinuousListening() async {
+  // Ensure speech recognition is available
   bool available = await _speech.initialize(
     onError: (error) => print('Speech initialization error: $error'),
     onStatus: (status) => print('Speech status: $status'),
   );
+
   if (!available) {
     print('Speech recognition is not available');
     _showFeedback("Speech recognition is not available.");
@@ -147,32 +150,34 @@ void _startContinuousListening() async {
     _isListening = true; // Indicate that listening has started
   });
 
-  // Announce that the app is listening
+  // Announce that the app is listening (only once at the beginning)
   _flutterTts.speak("Listening for commands...");
 
   while (_isListening) {
     try {
+      // Start listening for voice commands
       await _speech.listen(
         onResult: (result) {
           if (result.finalResult) {
             String recognizedText = result.recognizedWords;
             print("Recognized Text: $recognizedText");
-            _processVoiceCommand(recognizedText); // Process the command
+
+            // Process the recognized voice command
+            _processVoiceCommand(recognizedText);
           }
         },
         listenFor: const Duration(seconds: 10), // Timeout after 10 seconds
-        pauseFor: const Duration(seconds: 3), // Pause between utterances
+        pauseFor: const Duration(seconds: 7), // Pause before restarting
         partialResults: false, // Only process final results
         cancelOnError: true, // Stop listening on error
       );
 
-      // Wait before restarting listening
-      await Future.delayed(const Duration(seconds: 2));
+      // Wait for 7 seconds before restarting listening (silent restart)
+      await Future.delayed(const Duration(seconds: 7));
     } catch (e) {
       print("Error during speech recognition: $e");
-      _showFeedback("An error occurred while listening. Please try again.");
 
-      // Reinitialize speech recognition after an error
+      // Reinitialize speech recognition after an error (silently)
       await _speech.initialize();
     }
   }
@@ -181,7 +186,7 @@ void _startContinuousListening() async {
     _isListening = false; // Update state when listening stops
   });
 
-  // Notify the user that listening has stopped
+  // Notify the user that listening has stopped (only once at the end)
   _flutterTts.speak("Stopped listening.");
 }
 
