@@ -52,7 +52,7 @@ dependencies:
   sensors_plus: ^3.0.0
   shared_preferences: ^2.1.2
   camera: ^0.10.5+2
-  ultralytics_yolo: ^0.0.7
+  # ultralytics_yolo: ^0.0.7
   flutter_gemini: ^3.0.0
   google_generative_ai: ^0.3.2
   web_socket_channel: ^2.4.0

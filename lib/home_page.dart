@@ -79,7 +79,7 @@ class HomePage extends StatelessWidget {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                        builder: (context) =>  const CameraScreenYolo()),
+                        builder: (context) =>  const YoloVideo()),
                   );
                 },
               ),

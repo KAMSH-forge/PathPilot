@@ -18,10 +18,6 @@ android {
     kotlinOptions {
         jvmTarget = JavaVersion.VERSION_11.toString()
     }
-    
-    aaptOptions {
-        noCompress += listOf("tflite", "lite")
-    }
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
@@ -46,4 +42,3 @@ android {
 flutter {
     source = "../.."
 }
-
