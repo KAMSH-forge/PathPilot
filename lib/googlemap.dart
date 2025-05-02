@@ -7,9 +7,10 @@ import 'package:google_polyline_algorithm/google_polyline_algorithm.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:html/parser.dart' as html_parser;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'SpeechRecognitionManager.dart';
-import 'camera_screen.dart';
+import 'camera_screen_gemini.dart';
 import 'voice_command_handler.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'dart:math';
@@ -22,10 +23,11 @@ class GoogleMapPage extends StatefulWidget {
 }
 
 class _GoogleMapPageState extends State<GoogleMapPage> {
-  
+  // final String _googleMapsApiKey = dotenv.env['GOOGLE_MAPS_API_KEY'] ?? '';
+  // final String _googleAiStudioApiKey = dotenv.env['GOOGLE_AI_STUDIO_API_KEY'] ?? '';
   late SharedPreferences _prefs;
   late GoogleMapController mapController;
-  final TextEditingController _searchController = TextEditingController();
+  // final TextEditingController _searchController = TextEditingController();
   LatLng _currentLocation = const LatLng(11.085541, -7.719945); // Default location (ABU Zaria)
   LatLng? _destination;
   Set<Polyline> _polylines = {};
@@ -45,11 +47,11 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
   bool _isMapOnTop = true; // Controls whether the map is on top or the camera is on top
   late VoiceCommandHandler _voiceCommandHandler;
   late SpeechRecognitionManager _speechRecognitionManager;
-
   // Initialized as soon as map page loads
   @override
   void initState() {
     super.initState();
+    _initializeSpeechRecognition();
     _initializeTts();
     _initSpeech();
     _loadSharedPrefAndSpeakIntro();
@@ -112,6 +114,9 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     }
   }
 
+  void _initializeSpeechRecognition() {
+    _speechRecognitionManager = SpeechRecognitionManager();
+  }
     // Helper for showing feedback via SnackBar and TTS
   void _showFeedback(String message) {
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
@@ -133,63 +138,22 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     }
   }
 
-void _startContinuousListening() async {
-  // Ensure speech recognition is available
-  bool available = await _speech.initialize(
-    onError: (error) => print('Speech initialization error: $error'),
-    onStatus: (status) => print('Speech status: $status'),
-  );
 
-  if (!available) {
-    print('Speech recognition is not available');
-    _showFeedback("Speech recognition is not available.");
-    return;
+  void _startContinuousListening() {
+    setState(() {
+      _isListening = true;
+    });
+    _speechRecognitionManager.startContinuousListening(
+      onCommandRecognized: _processVoiceCommand,
+    );
   }
 
-  setState(() {
-    _isListening = true; // Indicate that listening has started
-  });
-
-  // Announce that the app is listening (only once at the beginning)
-  _flutterTts.speak("Listening for commands...");
-
-  while (_isListening) {
-    try {
-      // Start listening for voice commands
-      await _speech.listen(
-        onResult: (result) {
-          if (result.finalResult) {
-            String recognizedText = result.recognizedWords;
-            print("Recognized Text: $recognizedText");
-
-            // Process the recognized voice command
-            _processVoiceCommand(recognizedText);
-          }
-        },
-        listenFor: const Duration(seconds: 10), // Timeout after 10 seconds
-        pauseFor: const Duration(seconds: 7), // Pause before restarting
-        partialResults: false, // Only process final results
-        cancelOnError: true, // Stop listening on error
-      );
-
-      // Wait for 7 seconds before restarting listening (silent restart)
-      await Future.delayed(const Duration(seconds: 7));
-    } catch (e) {
-      print("Error during speech recognition: $e");
-
-      // Reinitialize speech recognition after an error (silently)
-      await _speech.initialize();
-    }
+  void _stopContinuousListening() {
+    setState(() {
+      _isListening = false;
+    });
+    _speechRecognitionManager.stopContinuousListening();
   }
-
-  setState(() {
-    _isListening = false; // Update state when listening stops
-  });
-
-  // Notify the user that listening has stopped (only once at the end)
-  _flutterTts.speak("Stopped listening.");
-}
-
 
   Future<void> _loadCustomMarkerIcon() async {
     _customMarkerIcon = await BitmapDescriptor.fromAssetImage(
@@ -198,17 +162,10 @@ void _startContinuousListening() async {
     );
   }
 
-  void _stopContinuousListening() {
-    setState(() {
-      _isListening = false; // Stop the listening loop
-    });
-    _speech.stop(); // Stop the speech recognition service
-    _flutterTts.speak("Stopped listening."); // Notify the user via TTS
-  }
-
-// NEEDS THOROUGH IMPLEMENTATION
   void _processVoiceCommand(String recognizedText) {
-    _voiceCommandHandler.processVoiceCommand(recognizedText);
+    // _voiceCommandHandler.processVoiceCommand(recognizedText);
+    _voiceCommandHandler.processVoiceCommandWithAI(recognizedText);
+    // _voiceCommandHandler.processVoiceCommandWithAIStream(recognizedText);
   }  
 
   void _stopNavigation() {
@@ -398,32 +355,7 @@ void _startContinuousListening() async {
     }
   }
 
-  // Future<void> _getDestination() async {
-  //   String query = _searchController.text;
-  //   if (query.isEmpty) return;
-  //   final String url =
-  //       "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
-  //       "?input=$query&inputtype=textquery&fields=geometry&key=$_apiKey";
-  //   final response = await http.get(Uri.parse(url));
-  //   if (response.statusCode == 200) {
-  //     final data = json.decode(response.body);
-  //     if (data["candidates"] != null &&
-  //         data["candidates"].isNotEmpty &&
-  //         data["candidates"][0]["geometry"] != null) {
-  //       double lat = data["candidates"][0]["geometry"]["location"]["lat"];
-  //       double lng = data["candidates"][0]["geometry"]["location"]["lng"];
-  //       LatLng location = LatLng(lat, lng);
 
-  //       setState(() {
-  //         _destination = location;
-  //         _updateMarkers();
-  //         _getDirections(_currentLocation, _destination!);
-  //       });
-  //     }
-  //   } else {
-  //     print("Error: ${response.body}");
-  //   }
-  // }
 
 
 Future<void> _getDestinationFromSearch(String destinationQuery) async {

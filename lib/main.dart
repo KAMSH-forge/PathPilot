@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'home_page.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'googlemap.dart';
+import 'camera_screen_gemini.dart';
 
 void main() async {
-  // await dotenv.load(); // Uncomment if you're using environment variables
+//  await dotenv.load(fileName: '.env'); // Uncomment if you're using environment variables
   runApp(const MyApp());
 }
 
@@ -31,8 +33,9 @@ class _TabNavigationState extends State<TabNavigation> {
 
   // List of pages for each tab
   final List<Widget> _pages = [
-    const Homepage(),
+    const HomePage(),
     const GoogleMapPage(),
+    const CameraScreen(),
   ];
 
   @override
@@ -54,6 +57,9 @@ class _TabNavigationState extends State<TabNavigation> {
           BottomNavigationBarItem(
             icon: Icon(Icons.map),
             label: "Map",
+          ),          BottomNavigationBarItem(
+            icon: Icon(Icons.camera),
+            label: "Camera",
           ),
         ],
       ),
