@@ -440,3 +440,197 @@
 //   // }
 
 "AIzaSyC_p8YHhBBEjDMsniEZYd4vzF73QEaGY7o"
+
+
+
+// Main Screen Widget
+Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Map'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context), // Go back to previous screen
+        ),
+      ),
+      body: Stack(
+        children: [
+           _buildNavigationPanel(),
+      
+          // Main View (Map or Camera)
+          _isMapPrimary ? _buildMapWidget() : _buildCameraWidget(),
+
+          // Picture-in-Picture (PiP) View
+          if (_isCameraVisible)
+            Positioned(
+              right: 16,
+              bottom: 100, // Position above the floating action buttons
+              child: SizedBox(
+                width: 150,
+                height: 200,
+                child: Card(
+                  elevation: 4,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: _isMapPrimary ? const CameraScreen() : _buildMapThumbnail(),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
+      floatingActionButton: Column(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          FloatingActionButton(
+            onPressed: _getUserLocation,
+            tooltip: "Go to my location",
+            enableFeedback: true,
+            child: const Icon(Icons.my_location),
+          ),
+          const SizedBox(height: 16),
+          FloatingActionButton(
+            onPressed: _isNavigating ? null : _startNavigation,
+            tooltip: "Start/Stop Navigation",
+            enableFeedback: true,
+            child: Icon(_isNavigating ? Icons.stop : Icons.navigation),
+          ),
+          const SizedBox(height: 16),
+          FloatingActionButton(
+            onPressed: _isListening
+                ? _stopContinuousListening
+                : _startContinuousListening,
+            tooltip: "Process Voice Command",
+            enableFeedback: true,
+            child: Icon(_isListening ? Icons.stop : Icons.mic),
+          ),
+          const SizedBox(height: 16),
+          FloatingActionButton(
+            onPressed: () {
+              setState(() {
+                _isCameraVisible = !_isCameraVisible; // Toggle camera visibility
+              });
+            },
+            tooltip: "Toggle Camera",
+            child: const Icon(Icons.camera_alt),
+          ),
+          const SizedBox(height: 16),
+          FloatingActionButton(
+            onPressed: _togglePrimaryView,
+            tooltip: "Switch Main View",
+            child: Icon(_isMapPrimary ? Icons.cameraswitch_outlined : Icons.map_outlined),
+          ),
+        ],
+      ),
+    );
+  }
+
+
+
+   Widget _buildNavigationPanel() {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      height: _isNavigating ? 200 : 0,
+      child: Card(
+        elevation: 4,
+        child: Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    "Navigation Instructions",
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () {
+                      setState(() {
+                        _isNavigating = false;
+                      });
+                    },
+                  ),
+                ],
+              ),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: _navigationSteps.length,
+                  itemBuilder: (context, index) {
+                    final step = _navigationSteps[index];
+                    final isCurrentStep = index == _currentStepIndex;
+                    return ListTile(
+                      title: Text(
+                        step['instructions'],
+                        style: TextStyle(
+                          fontWeight: isCurrentStep
+                              ? FontWeight.bold
+                              : FontWeight.normal,
+                        ),
+                      ),
+                      subtitle:Text("${step['distance']} (${step['duration']})"),
+                      tileColor: isCurrentStep ? Colors.blue.shade100 : null,
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+
+
+  // Build the Google Map Widget
+  Widget _buildMapWidget() {
+    return GoogleMap(
+      onMapCreated: (controller) {
+        mapController = controller;
+      },
+      polylines: _polylines,
+      markers: _markers,
+      initialCameraPosition: CameraPosition(
+        target: _currentLocation,
+        zoom: 14.0,
+      ),
+    );
+  }
+
+  // Build the Camera Preview Widget using the imported CameraScreen
+  Widget _buildCameraWidget() {
+    return const CameraScreen();
+  }
+
+  // Build a Thumbnail Version of the Map for PiP
+  Widget _buildMapThumbnail() {
+    return GoogleMap(
+      onMapCreated: (controller) {},
+      polylines: _polylines,
+      markers: _markers,
+      initialCameraPosition: CameraPosition(
+        target: _currentLocation,
+        zoom: 9.0, // Smaller zoom level for thumbnail
+      ),
+      myLocationEnabled: false,
+      myLocationButtonEnabled: false,
+      zoomControlsEnabled: false,
+      mapToolbarEnabled: false,
+      compassEnabled: false,
+      scrollGesturesEnabled: false,
+      zoomGesturesEnabled: false,
+      tiltGesturesEnabled: false,
+      rotateGesturesEnabled: false,
+    );
+  }
+
+
+
+
+
+
+
+

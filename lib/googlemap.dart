@@ -25,10 +25,12 @@ class GoogleMapPage extends StatefulWidget {
 class _GoogleMapPageState extends State<GoogleMapPage> {
   // final String _googleMapsApiKey = dotenv.env['GOOGLE_MAPS_API_KEY'] ?? '';
   // final String _googleAiStudioApiKey = dotenv.env['GOOGLE_AI_STUDIO_API_KEY'] ?? '';
+  final GlobalKey<CameraScreenState> _cameraKey = GlobalKey<CameraScreenState>();
   late SharedPreferences _prefs;
   late GoogleMapController mapController;
   // final TextEditingController _searchController = TextEditingController();
-  LatLng _currentLocation = const LatLng(11.085541, -7.719945); // Default location (ABU Zaria)
+  LatLng _currentLocation =
+      const LatLng(11.085541, -7.719945); // Default location (ABU Zaria)
   LatLng? _destination;
   Set<Polyline> _polylines = {};
   Set<Marker> _markers = {};
@@ -40,13 +42,17 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
   late FlutterTts _flutterTts;
   late BitmapDescriptor _customMarkerIcon;
   double _currentHeading = 0.0; // Stores the current compass heading
-  bool _isCameraVisible = false; // Controls camera visibility
-  final stt.SpeechToText _speech = stt.SpeechToText();// Speech-to-Text Variables
+  bool _isCameraVisible = true; // Controls camera visibility
+  final stt.SpeechToText _speech =
+      stt.SpeechToText(); // Speech-to-Text Variables
   bool _isListening = false;
   bool _isMapPrimary = true;
-  bool _isMapOnTop = true; // Controls whether the map is on top or the camera is on top
+  bool _isMapOnTop =true; // Controls whether the map is on top or the camera is on top
   late VoiceCommandHandler _voiceCommandHandler;
   late SpeechRecognitionManager _speechRecognitionManager;
+  // late CameraScreen _cameraScreen;
+   
+
   // Initialized as soon as map page loads
   @override
   void initState() {
@@ -57,20 +63,23 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     _loadSharedPrefAndSpeakIntro();
     _startContinuousListening();
     _loadCustomMarkerIcon();
-        // Initialize the VoiceCommandHandler
+  //  _cameraScreen = CameraScreen(key: _cameraKey);
+    // Initialize the VoiceCommandHandler
     _voiceCommandHandler = VoiceCommandHandler(
       showFeedback: _showFeedback,
       getDestination: _getDestinationFromSearch,
       getUserLocation: () => _getUserLocation(),
       stopNavigation: _stopNavigation,
       togglePrimaryView: _togglePrimaryView,
+      captureAndSendImage: _captureAndSendImage,
+      getAiResponse: _getAiResponse,
       toggleCameraVisibility: (visible) {
         setState(() {
           _isCameraVisible = visible;
         });
       },
     );
-      // Convert raw magnetometer data to heading (compass direction)
+    // Convert raw magnetometer data to heading (compass direction)
     magnetometerEvents.listen((MagnetometerEvent event) {
       double heading = _calculateHeading(event);
       setState(() {
@@ -107,6 +116,8 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     super.dispose();
   }
 
+
+
   Future<void> _initSpeech() async {
     bool available = await _speech.initialize();
     if (!available) {
@@ -114,13 +125,24 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     }
   }
 
+void _captureAndSendImage() {
+_cameraKey.currentState?.captureAndSendImage();
+print("sending");
+}
+
+void _getAiResponse (){
+  _cameraKey.currentState?.getAiResponse();
+}
+
   void _initializeSpeechRecognition() {
     _speechRecognitionManager = SpeechRecognitionManager();
   }
-    // Helper for showing feedback via SnackBar and TTS
+
+  // Helper for showing feedback via SnackBar and TTS
   void _showFeedback(String message) {
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    // ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    // ScaffoldMessenger.of(context)
+    //     .showSnackBar(SnackBar(content: Text(message)));
     _flutterTts.speak(message);
   }
 
@@ -129,15 +151,14 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     bool isFirstTime = _prefs.getBool('isFirstTime') ?? true;
     if (isFirstTime) {
       await _flutterTts.speak(
-        "Welcome to Path Pilot! To use the app, say 'Path Pilot' followed by a command. "
+        "Welcome to Path Pilot! To use the app, say 'Pilot' followed by a command. "
         "For example, say 'Path Pilot, take me to [destination]' to navigate, or say "
-        "'Path Pilot, where am I?' to get your current location. Listening now...",
+        "'Pilot, where am I?' to get your current location. Listening now...",
       );
       // Update SharedPreferences to mark that the intro has been spoken
       await _prefs.setBool('isFirstTime', false);
     }
   }
-
 
   void _startContinuousListening() {
     setState(() {
@@ -163,10 +184,10 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
   }
 
   void _processVoiceCommand(String recognizedText) {
-    // _voiceCommandHandler.processVoiceCommand(recognizedText);
-    _voiceCommandHandler.processVoiceCommandWithAI(recognizedText);
+    _voiceCommandHandler.processVoiceCommand(recognizedText);
+    // _voiceCommandHandler.processVoiceCommandWithAI(recognizedText);
     // _voiceCommandHandler.processVoiceCommandWithAIStream(recognizedText);
-  }  
+  }
 
   void _stopNavigation() {
     setState(() {
@@ -220,7 +241,8 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     });
     loc.LocationData userLocation = await locationController.getLocation();
     setState(() {
-      _currentLocation =LatLng(userLocation.latitude!, userLocation.longitude!);
+      _currentLocation =
+          LatLng(userLocation.latitude!, userLocation.longitude!);
       _destination = null;
       _updateMarkers();
       _polylines.clear();
@@ -233,20 +255,19 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     await _speakLocation(_currentLocation);
   }
 
-
   void _updateMarkers() async {
     // Load the custom marker icon
     setState(() {
       _markers.clear();
-      _markers.add(
-        Marker(
-          markerId: const MarkerId('currentLocation'),
-          position: _currentLocation,
-          infoWindow: const InfoWindow(title: "You are here"),
-          icon: _customMarkerIcon,
-          rotation: _currentHeading,
-        ),
-      );
+      // _markers.add(
+      //   Marker(
+      //     markerId: const MarkerId('currentLocation'),
+      //     position: _currentLocation,
+      //     infoWindow: const InfoWindow(title: "You are here"),
+      //     // icon: _customMarkerIcon,
+      //     rotation: _currentHeading,
+      //   ),
+      // );
 
       if (_destination != null) {
         _markers.add(
@@ -260,19 +281,66 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     });
   }
 
-
   Future<void> _speakLocation(LatLng location) async {
-    // DECODE ADDRESS BETTER!!!
     try {
-      final String url =
-          "https://maps.googleapis.com/maps/api/geocode/json?latlng=${location.latitude},${location.longitude}&key=$_apiKey";
+      final String url = "https://maps.googleapis.com/maps/api/geocode/json"
+          "?latlng=${location.latitude},${location.longitude}"
+          "&key=$_apiKey";
+
       final response = await http.get(Uri.parse(url));
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         if (data["results"] != null && data["results"].isNotEmpty) {
-          String address = data["results"][0]["formatted_address"];
-          print("Current Location: $address");
-          await _flutterTts.speak("You are currently at $address");
+          // 1. Pull out the formatted address
+          // String address = data["results"][0]["formatted_address"];
+          // print(data);
+          // //);
+          // // 2. Remove all numbers via regex
+          // address = address.replaceAll(RegExp(r'\d+'), '');
+
+          // // 3. Optionally collapse extra spaces left behind
+          // address = address.replaceAll(RegExp(r'\s{2,}'), ' ').trim();
+
+          // print("Current Location (cleaned): $address");
+
+          final addressComponents = data['results'][0]['address_components'];
+          print(addressComponents);
+
+          String locality = '';
+          String administrativeAreaLevel2 = '';
+          String administrativeAreaLevel1 = '';
+          String country = '';
+
+          for (var component in addressComponents) {
+            final types = List<String>.from(component['types']);
+            final longName = component['long_name'];
+
+            if (types.contains('locality')) {
+              locality = longName;
+            } else if (types.contains('administrative_area_level_2')) {
+              administrativeAreaLevel2 = longName;
+            } else if (types.contains('administrative_area_level_1')) {
+              administrativeAreaLevel1 = longName;
+            } else if (types.contains('country')) {
+              country = longName;
+            }
+          }
+
+          // Build readable location string
+          List<String> locationParts = [];
+
+          if (locality.isNotEmpty) locationParts.add(locality);
+          if (administrativeAreaLevel2.isNotEmpty)
+            locationParts.add(administrativeAreaLevel2);
+          if (administrativeAreaLevel1.isNotEmpty)
+            locationParts.add(administrativeAreaLevel1);
+          if (country.isNotEmpty) locationParts.add(country);
+
+          String finalLocation = locationParts.join(', ');
+
+          print("Current Location: $finalLocation");
+
+          await _flutterTts.speak("You are currently at $finalLocation");
         }
       } else {
         print("Error fetching address: ${response.body}");
@@ -311,7 +379,7 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
               width: 5,
             ),
           );
-        });// Extract navigation steps
+        }); // Extract navigation steps
         List<dynamic> steps = data['routes'][0]['legs'][0]['steps'];
         print(steps);
         setState(() {
@@ -355,47 +423,45 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     }
   }
 
-
-
-
-Future<void> _getDestinationFromSearch(String destinationQuery) async {
-  if (destinationQuery.isEmpty) {
-    _showFeedback("Please enter a destination to search.");
-    return;
-  }
-  setState(() => _isLoading = true); // Show loading indicator
-  // Use the Google Places API to find the destination
-  final String url =
-      "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
-      "?input=$destinationQuery&inputtype=textquery&fields=geometry&key=$_apiKey";
-  final response = await http.get(Uri.parse(url));
-
-  if (response.statusCode == 200) {
-    final data = json.decode(response.body);
-    if (data["candidates"] != null &&
-        data["candidates"].isNotEmpty &&
-        data["candidates"][0]["geometry"] != null) {
-      double lat = data["candidates"][0]["geometry"]["location"]["lat"];
-      double lng = data["candidates"][0]["geometry"]["location"]["lng"];
-      LatLng location = LatLng(lat, lng);
-
-      setState(() {
-        _destination = location;
-        _updateMarkers(); // Update markers
-        _getDirections(_currentLocation, _destination!); // Get directions
-        // _isLoading = false; // Hide loading indicator
-      });
-    } else {
-      _showFeedback("Could not find location: '$destinationQuery'. Please try a different search term.");
+  Future<void> _getDestinationFromSearch(String destinationQuery) async {
+    if (destinationQuery.isEmpty) {
+      _showFeedback("Please enter a destination to search.");
+      return;
     }
-  } else {
-    print("Error searching for destination: ${response.statusCode} ${response.body}");
-    _showFeedback("An error occurred while searching for the destination.");
+    setState(() => _isLoading = true); // Show loading indicator
+    // Use the Google Places API to find the destination
+    final String url =
+        "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
+        "?input=$destinationQuery&inputtype=textquery&fields=geometry&key=$_apiKey";
+    final response = await http.get(Uri.parse(url));
+
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      if (data["candidates"] != null &&
+          data["candidates"].isNotEmpty &&
+          data["candidates"][0]["geometry"] != null) {
+        double lat = data["candidates"][0]["geometry"]["location"]["lat"];
+        double lng = data["candidates"][0]["geometry"]["location"]["lng"];
+        LatLng location = LatLng(lat, lng);
+
+        setState(() {
+          _destination = location;
+          _updateMarkers(); // Update markers
+          _getDirections(_currentLocation, _destination!); // Get directions
+          // _isLoading = false; // Hide loading indicator
+        });
+      } else {
+        _showFeedback(
+            "Could not find location: '$destinationQuery'. Please try a different search term.");
+      }
+    } else {
+      print(
+          "Error searching for destination: ${response.statusCode} ${response.body}");
+      _showFeedback("An error occurred while searching for the destination.");
+    }
+
+    // setState(() => _isLoading = false); // Ensure loading indicator is hidden
   }
-
-  // setState(() => _isLoading = false); // Ensure loading indicator is hidden
-}
-
 
   Future<void> _startNavigation() async {
     if (_destination == null || _navigationSteps.isEmpty) {
@@ -456,12 +522,13 @@ Future<void> _getDestinationFromSearch(String destinationQuery) async {
     });
   }
 
-    // Toggle between Map Primary and Camera Primary views
+  // Toggle between Map Primary and Camera Primary views
   void _togglePrimaryView() {
     setState(() {
       _isMapPrimary = !_isMapPrimary;
       if (!_isMapPrimary) {
-        _isCameraVisible = true; // Ensure PiP is visible when switching to camera primary
+        _isCameraVisible =
+            true; // Ensure PiP is visible when switching to camera primary
       }
     });
   }
@@ -508,7 +575,8 @@ Future<void> _getDestinationFromSearch(String destinationQuery) async {
                               : FontWeight.normal,
                         ),
                       ),
-                      subtitle:Text("${step['distance']} (${step['duration']})"),
+                      subtitle:
+                          Text("${step['distance']} (${step['duration']})"),
                       tileColor: isCurrentStep ? Colors.blue.shade100 : null,
                     );
                   },
@@ -521,8 +589,6 @@ Future<void> _getDestinationFromSearch(String destinationQuery) async {
     );
   }
 
-
-
   // Build the Google Map Widget
   Widget _buildMapWidget() {
     return GoogleMap(
@@ -531,16 +597,16 @@ Future<void> _getDestinationFromSearch(String destinationQuery) async {
       },
       polylines: _polylines,
       markers: _markers,
+      myLocationEnabled: true,
+      myLocationButtonEnabled: true,
       initialCameraPosition: CameraPosition(
-        target: _currentLocation,
-        zoom: 14.0,
-      ),
+          target: _currentLocation, zoom: 14.0, tilt: _isNavigating ? 45 : 0),
     );
   }
 
   // Build the Camera Preview Widget using the imported CameraScreen
   Widget _buildCameraWidget() {
-    return const CameraScreen();
+    return CameraScreen(key: _cameraKey);
   }
 
   // Build a Thumbnail Version of the Map for PiP
@@ -553,8 +619,8 @@ Future<void> _getDestinationFromSearch(String destinationQuery) async {
         target: _currentLocation,
         zoom: 9.0, // Smaller zoom level for thumbnail
       ),
-      myLocationEnabled: false,
-      myLocationButtonEnabled: false,
+      myLocationEnabled: true,
+      myLocationButtonEnabled: true,
       zoomControlsEnabled: false,
       mapToolbarEnabled: false,
       compassEnabled: false,
@@ -565,8 +631,7 @@ Future<void> _getDestinationFromSearch(String destinationQuery) async {
     );
   }
 
-
-@override
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
@@ -578,8 +643,8 @@ Future<void> _getDestinationFromSearch(String destinationQuery) async {
       ),
       body: Stack(
         children: [
-           _buildNavigationPanel(),
-      
+          _buildNavigationPanel(),
+
           // Main View (Map or Camera)
           _isMapPrimary ? _buildMapWidget() : _buildCameraWidget(),
 
@@ -595,7 +660,9 @@ Future<void> _getDestinationFromSearch(String destinationQuery) async {
                   elevation: 4,
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: _isMapPrimary ? const CameraScreen() : _buildMapThumbnail(),
+                    child: _isMapPrimary
+                        ? const CameraScreen()
+                        : _buildMapThumbnail(),
                   ),
                 ),
               ),
@@ -632,7 +699,8 @@ Future<void> _getDestinationFromSearch(String destinationQuery) async {
           FloatingActionButton(
             onPressed: () {
               setState(() {
-                _isCameraVisible = !_isCameraVisible; // Toggle camera visibility
+                _isCameraVisible =
+                    !_isCameraVisible; // Toggle camera visibility
               });
             },
             tooltip: "Toggle Camera",
@@ -642,7 +710,16 @@ Future<void> _getDestinationFromSearch(String destinationQuery) async {
           FloatingActionButton(
             onPressed: _togglePrimaryView,
             tooltip: "Switch Main View",
-            child: Icon(_isMapPrimary ? Icons.cameraswitch_outlined : Icons.map_outlined),
+            child: Icon(_isMapPrimary
+                ? Icons.cameraswitch_outlined
+                : Icons.map_outlined),
+          ),
+          const SizedBox(height: 16),
+          FloatingActionButton(
+            onPressed: (){_captureAndSendImage;},
+            tooltip: "send",
+            enableFeedback: true,
+            child: Icon(Icons.send),
           ),
         ],
       ),

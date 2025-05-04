@@ -47,7 +47,7 @@ class SpeechRecognitionManager {
             }
           },
           listenFor: const Duration(seconds: 10),
-          pauseFor: const Duration(seconds: 7),
+          pauseFor: const Duration(seconds: 10),
           partialResults: false,
           cancelOnError: true,
         );
@@ -61,7 +61,7 @@ class SpeechRecognitionManager {
       }
       ;
 
-      await Future.delayed(const Duration(seconds: 7));
+      await Future.delayed(const Duration(seconds: 10));
       await RealVolume.setVolume(_originalVolume, streamType: StreamType.RING);
     }
 

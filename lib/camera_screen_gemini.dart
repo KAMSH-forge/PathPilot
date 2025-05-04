@@ -8,17 +8,17 @@ class CameraScreen extends StatefulWidget {
   const CameraScreen({super.key});
 
   @override
-  _CameraScreenState createState() => _CameraScreenState();
+  CameraScreenState createState() => CameraScreenState();
 }
 
-class _CameraScreenState extends State<CameraScreen> {
+class CameraScreenState extends State<CameraScreen> {
   late CameraController _cameraController;
   WebSocketChannel? _channel;
   String? _latestImageBase64;
   bool _isLoading = false;
   bool _turnComplete = false;
   int _turnCount = 0;
-  String _aiResponse = "";
+  String aiResponse = "";
 
   @override
   void initState() {
@@ -71,7 +71,7 @@ class _CameraScreenState extends State<CameraScreen> {
           print("stream received >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>");
           print(response);
           setState(() {
-            _aiResponse = "$_aiResponse${_handleResponse(response)}";
+            aiResponse = "$aiResponse${_handleResponse(response)}";
           });
         } catch (e) {
           print('❌ Error processing response: $e');
@@ -128,34 +128,37 @@ class _CameraScreenState extends State<CameraScreen> {
     return "No response from AI.";
   }
 
-  Future<void> _captureAndSendImage() async {
+Future<void> captureAndSendImage() async {
     if (!_cameraController.value.isInitialized ||
         _cameraController.value.isTakingPicture) return;
 
     try {
       setState(() => _isLoading = true);
 
-      final image = await _cameraController.takePicture();
-      final bytes = await image.readAsBytes();
-      final base64Image = base64Encode(bytes);
+      for (int i = 0; i < 10; i++) {
+        final image = await _cameraController.takePicture();
+        final bytes = await image.readAsBytes();
+        final base64Image = base64Encode(bytes);
 
-      setState(() {
-        _latestImageBase64 = base64Image;
-        _isLoading = false;
-        _aiResponse = "";
-        _turnCount += 1;
-      });
-
-      if (_turnCount == 10) {
         setState(() {
-          _turnCount = 0;
-          _turnComplete = true;
+          _latestImageBase64 = base64Image;
+          aiResponse = "";
+          _turnCount += 1;
         });
-      }
 
-      _sendVoiceCommand("Where am I?");
+        if (_turnCount == 10) {
+          setState(() {
+            _turnCount = 0;
+            _turnComplete = true;
+          });
+        }
+
+        _sendVoiceCommand("Where am I?");
+        await Future.delayed(const Duration(milliseconds: 300)); // small delay
+      }
     } catch (e) {
       print('❌ Error capturing image: $e');
+    } finally {
       setState(() => _isLoading = false);
     }
   }
@@ -192,13 +195,26 @@ class _CameraScreenState extends State<CameraScreen> {
     }
   }
 
+  String getAiResponse() {
+    return aiResponse;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: _cameraController.value.isInitialized
           ? Stack(
               children: [
-                CameraPreview(_cameraController),
+                SizedBox.expand(
+                  child: FittedBox(
+                    fit: BoxFit.cover,
+                    child: SizedBox(
+                      width: _cameraController.value.previewSize!.height,
+                      height: _cameraController.value.previewSize!.width,
+                      child: CameraPreview(_cameraController),
+                    ),
+                  ),
+                ),
                 Positioned(
                   bottom: 20,
                   left: 0,
@@ -207,7 +223,7 @@ class _CameraScreenState extends State<CameraScreen> {
                     padding: const EdgeInsets.all(16),
                     color: Colors.black.withOpacity(0.7),
                     child: Text(
-                      _aiResponse,
+                      aiResponse,
                       style: const TextStyle(color: Colors.white),
                     ),
                   ),
@@ -216,7 +232,7 @@ class _CameraScreenState extends State<CameraScreen> {
             )
           : const Center(child: CircularProgressIndicator()),
       floatingActionButton: FloatingActionButton(
-        onPressed: _captureAndSendImage,
+        onPressed: captureAndSendImage,
         child: _isLoading
             ? const CircularProgressIndicator(color: Colors.white)
             : const Icon(Icons.send),
