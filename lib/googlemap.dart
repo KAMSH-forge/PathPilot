@@ -14,6 +14,9 @@ import 'camera_screen_gemini.dart';
 import 'voice_command_handler.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'dart:math';
+import 'dart:typed_data';
+import 'package:geolocator/geolocator.dart';
+import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 
 class GoogleMapPage extends StatefulWidget {
   const GoogleMapPage({super.key});
@@ -25,7 +28,8 @@ class GoogleMapPage extends StatefulWidget {
 class _GoogleMapPageState extends State<GoogleMapPage> {
   // final String _googleMapsApiKey = dotenv.env['GOOGLE_MAPS_API_KEY'] ?? '';
   // final String _googleAiStudioApiKey = dotenv.env['GOOGLE_AI_STUDIO_API_KEY'] ?? '';
-  final GlobalKey<CameraScreenState> _cameraKey = GlobalKey<CameraScreenState>();
+  final GlobalKey<CameraScreenState> _cameraKey =
+      GlobalKey<CameraScreenState>();
   late SharedPreferences _prefs;
   late GoogleMapController mapController;
   // final TextEditingController _searchController = TextEditingController();
@@ -47,11 +51,19 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
       stt.SpeechToText(); // Speech-to-Text Variables
   bool _isListening = false;
   bool _isMapPrimary = true;
-  bool _isMapOnTop =true; // Controls whether the map is on top or the camera is on top
+  bool _isMapOnTop =
+      true; // Controls whether the map is on top or the camera is on top
   late VoiceCommandHandler _voiceCommandHandler;
   late SpeechRecognitionManager _speechRecognitionManager;
+  String aiResponse = "";
+
   // late CameraScreen _cameraScreen;
-   
+  BluetoothConnection? _connection;
+  bool isConnected = false;
+  String statusMessage = 'Ready to connect';
+  final String deviceAddress = '98:D3:31:F7:0C:94';
+  final TextEditingController _textController = TextEditingController();
+  final List<String> _receivedMessages = [];
 
   // Initialized as soon as map page loads
   @override
@@ -60,10 +72,12 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     _initializeSpeechRecognition();
     _initializeTts();
     _initSpeech();
+    _connectToDevice();
     _loadSharedPrefAndSpeakIntro();
     _startContinuousListening();
     _loadCustomMarkerIcon();
-  //  _cameraScreen = CameraScreen(key: _cameraKey);
+
+    //  _cameraScreen = CameraScreen(key: _cameraKey);
     // Initialize the VoiceCommandHandler
     _voiceCommandHandler = VoiceCommandHandler(
       showFeedback: _showFeedback,
@@ -116,8 +130,6 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     super.dispose();
   }
 
-
-
   Future<void> _initSpeech() async {
     bool available = await _speech.initialize();
     if (!available) {
@@ -125,14 +137,202 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     }
   }
 
-void _captureAndSendImage() {
-_cameraKey.currentState?.captureAndSendImage();
-print("sending");
-}
+  Future<void> _connectToDevice({int maxAttempts = 3}) async {
+    int attempt = 0;
+    bool connected = false;
 
-void _getAiResponse (){
-  _cameraKey.currentState?.getAiResponse();
-}
+    while (attempt < maxAttempts && !connected) {
+      attempt++;
+      try {
+        setState(() {
+          statusMessage = '🔍 Attempt $attempt: Searching for devices...';
+        });
+
+        List<BluetoothDevice> devices =
+            await FlutterBluetoothSerial.instance.getBondedDevices();
+
+        BluetoothDevice? device;
+        try {
+          device = devices.firstWhere((d) => d.address == deviceAddress);
+        } catch (_) {
+          device = null;
+        }
+
+        if (device == null) {
+          setState(() {
+            statusMessage = '❗ Device not found (Attempt $attempt)';
+          });
+          continue;
+        }
+
+        setState(() {
+          statusMessage =
+              '🔌 Attempt $attempt: Connecting to ${device!.name}...';
+        });
+
+        _connection = await BluetoothConnection.toAddress(device.address);
+        connected = true;
+
+        setState(() {
+          isConnected = true;
+          statusMessage = '✅ Connected to ${device!.name}';
+        });
+
+        _flutterTts.speak("Hardware device connected successfully");
+        _sendBluetoothMessage("LRLRLRLRLRLRLRLRRLRLRLRLRLR");
+        _connection!.input?.listen((Uint8List data) {
+          final received = String.fromCharCodes(data);
+          print('📥 Received data: $received');
+          setState(() {
+            _receivedMessages.add(received);
+          });
+        }).onDone(() {
+          print('🔌 Disconnected by remote device');
+          setState(() {
+            isConnected = false;
+            statusMessage = '🔌 Disconnected';
+          });
+        });
+      } catch (error) {
+        print('❌ Attempt $attempt failed: $error');
+        if (attempt >= maxAttempts) {
+          setState(() {
+            statusMessage = '❌ Connection failed after $attempt attempts';
+          });
+        } else {
+          await Future.delayed(
+              Duration(seconds: 2)); // Optional delay before retry
+        }
+      }
+    }
+  }
+
+  void _disconnect() {
+    if (isConnected && _connection != null) {
+      _connection!.dispose();
+      _connection!.finish();
+      setState(() {
+        isConnected = false;
+        statusMessage = '🔌 Disconnected manually';
+      });
+    }
+  }
+
+  void _sendMessage() {
+    if (_connection != null && _textController.text.isNotEmpty) {
+      final text = _textController.text + "\r\n";
+      _connection!.output.add(Uint8List.fromList(text.codeUnits));
+      _connection!.output.allSent;
+      print('📤 Sent: $text');
+
+      setState(() {
+        _textController.clear();
+        _receivedMessages.add('You: $text');
+      });
+    }
+  }
+
+  void _sendBluetoothMessage(String message) {
+    if (_connection != null && isConnected && message.isNotEmpty) {
+      final formatted =
+          message + "\r\n"; // Append newline if required by device
+      _connection!.output.add(Uint8List.fromList(formatted.codeUnits));
+      _connection!.output.allSent;
+
+      print('📤 Sent: $formatted');
+
+      setState(() {
+        _receivedMessages.add('You: $formatted');
+      });
+    } else {
+      print('⚠️ Cannot send: Not connected or message is empty.');
+    }
+  }
+
+  String _decodeWebSocketData(dynamic data) {
+    try {
+      if (data is String) return data;
+      if (data is Uint8List || data is List<int>) return utf8.decode(data);
+    } catch (e) {
+      throw FormatException(
+          'Unsupported WebSocket data type: ${data.runtimeType}');
+    }
+    return '';
+  }
+
+  void _captureAndSendImage() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      setState(() {
+        aiResponse = "";
+      });
+      if (_cameraKey.currentState != null) {
+        _cameraKey.currentState?.captureAndSendImage();
+        // print(_cameraKey.currentState?.broadcastStream);
+        _cameraKey.currentState?.broadcastStream.listen(
+          (data) {
+            try {
+              final responseString = _decodeWebSocketData(data);
+              final response = json.decode(responseString);
+              // print(response);
+              print(
+                  "stream received  (main page) >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> (main page)");
+              final serverContent = response['serverContent'];
+              if (serverContent['turnComplete'] == null) {
+                // print(aiResponse);
+                setState(() {
+                  aiResponse = "$aiResponse${_handleResponse(response)}";
+                });
+              } else {
+                print(
+                    "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>");
+                // print(aiResponse);
+
+                final final_response = json.decode(aiResponse);
+                final text = final_response['text'];
+                final response_type = final_response['response_type'];
+                print(text);
+                _showFeedback(text);
+                print(response_type);
+
+                setState(() {
+                  aiResponse = "";
+                });
+              }
+            } catch (e) {
+              print('❌ Error processing response: $e');
+            }
+          },
+          onError: (error) => print('❌ WebSocket error: $error'),
+          onDone: () => print('🔌 Connection closed'),
+        );
+      } else {
+        print("Camera widget state is not yet initialized.");
+      }
+    });
+  }
+
+  String _handleResponse(Map<String, dynamic> response) {
+    if (response['serverContent'] != null) {
+      final content = response['serverContent'];
+      final modelTurn = content['modelTurn'];
+      if (modelTurn != null) {
+        final parts = modelTurn['parts'] as List?;
+        if (parts != null && parts.isNotEmpty) {
+          for (final part in parts) {
+            if (part['text'] != null) {
+              return part['text'];
+            }
+          }
+        }
+      }
+    }
+    return "No response from AI.";
+  }
+
+  void _getAiResponse() {
+    _cameraKey.currentState?.getAiResponse();
+    // _cameraKey.currentState?.
+  }
 
   void _initializeSpeechRecognition() {
     _speechRecognitionManager = SpeechRecognitionManager();
@@ -200,7 +400,7 @@ void _getAiResponse (){
     });
     if (mounted && mapController != null) {
       mapController
-          .animateCamera(CameraUpdate.newLatLngZoom(_currentLocation, 14));
+          .animateCamera(CameraUpdate.newLatLngZoom(_currentLocation, 16));
     }
     // Optionally, announce that navigation has stopped
     _flutterTts.speak("Navigation stopped.");
@@ -224,6 +424,7 @@ void _getAiResponse (){
       permission = await locationController.requestPermission();
       if (permission != loc.PermissionStatus.granted) return;
     }
+
     locationController.onLocationChanged
         .listen((loc.LocationData currentLocation) {
       if (currentLocation.latitude != null &&
@@ -239,7 +440,9 @@ void _getAiResponse (){
         });
       }
     });
+
     loc.LocationData userLocation = await locationController.getLocation();
+
     setState(() {
       _currentLocation =
           LatLng(userLocation.latitude!, userLocation.longitude!);
@@ -250,9 +453,20 @@ void _getAiResponse (){
     });
     if (mounted && mapController != null) {
       mapController
-          .animateCamera(CameraUpdate.newLatLngZoom(_currentLocation, 14));
+          .animateCamera(CameraUpdate.newLatLngZoom(_currentLocation, 18.5));
     }
-    await _speakLocation(_currentLocation);
+
+    LocationPermission perm;
+    perm = await Geolocator.requestPermission();
+
+    Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high);
+    double lat = position.latitude;
+
+    double long = position.longitude;
+
+    LatLng location = LatLng(lat, long);
+    await _speakLocation(location);
   }
 
   void _updateMarkers() async {
@@ -643,11 +857,8 @@ void _getAiResponse (){
       ),
       body: Stack(
         children: [
-          _buildNavigationPanel(),
-
           // Main View (Map or Camera)
           _isMapPrimary ? _buildMapWidget() : _buildCameraWidget(),
-
           // Picture-in-Picture (PiP) View
           if (_isCameraVisible)
             Positioned(
@@ -661,7 +872,7 @@ void _getAiResponse (){
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(8),
                     child: _isMapPrimary
-                        ? const CameraScreen()
+                        ? CameraScreen(key: _cameraKey)
                         : _buildMapThumbnail(),
                   ),
                 ),
@@ -716,9 +927,8 @@ void _getAiResponse (){
           ),
           const SizedBox(height: 16),
           FloatingActionButton(
-            onPressed: (){_captureAndSendImage;},
-            tooltip: "send",
-            enableFeedback: true,
+            onPressed: _captureAndSendImage,
+            tooltip: "Switch Main View",
             child: Icon(Icons.send),
           ),
         ],

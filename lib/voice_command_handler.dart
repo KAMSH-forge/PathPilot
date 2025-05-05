@@ -59,12 +59,14 @@ class VoiceCommandHandler {
   }
 
   bool _handleCaptureImage(String command) {
-    if (command == "capture image" || command == "take picture") {
+    if (command == "capture view" || command == "describe view") {
       captureAndSendImage(); // Call the passed-in method
-      showFeedback("Capturing and sending image...");
+      showFeedback("Analysing Scene...");
       String result = getAiResponse();
+      // showFeedback(result);
       print(result);
       if (result.isNotEmpty)
+
       return true;
     }
     return false;

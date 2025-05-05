@@ -5,7 +5,8 @@ import 'package:camera/camera.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 class CameraScreen extends StatefulWidget {
-  const CameraScreen({super.key});
+  const CameraScreen({Key? key}) : super(key: key);
+  // const CameraScreen({super.key});
 
   @override
   CameraScreenState createState() => CameraScreenState();
@@ -19,6 +20,8 @@ class CameraScreenState extends State<CameraScreen> {
   bool _turnComplete = false;
   int _turnCount = 0;
   String aiResponse = "";
+  // Expose the broadcast stream
+  late Stream<dynamic> broadcastStream;
 
   @override
   void initState() {
@@ -50,7 +53,7 @@ class CameraScreenState extends State<CameraScreen> {
         .then((_) => print('🔗 WebSocket connected'))
         .catchError((e) => print('❌ Connection failed: $e'));
 
-    final broadcastStream = _channel!.stream.asBroadcastStream();
+    broadcastStream = _channel!.stream.asBroadcastStream();
 
     String _decodeWebSocketData(dynamic data) {
       try {
@@ -63,23 +66,23 @@ class CameraScreenState extends State<CameraScreen> {
       return '';
     }
 
-    broadcastStream.listen(
-      (data) {
-        try {
-          final responseString = _decodeWebSocketData(data);
-          final response = json.decode(responseString);
-          print("stream received >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>");
-          print(response);
-          setState(() {
-            aiResponse = "$aiResponse${_handleResponse(response)}";
-          });
-        } catch (e) {
-          print('❌ Error processing response: $e');
-        }
-      },
-      onError: (error) => print('❌ WebSocket error: $error'),
-      onDone: () => print('🔌 Connection closed'),
-    );
+    // broadcastStream.listen(
+    //   (data) {
+    //     try {
+    //       final responseString = _decodeWebSocketData(data);
+    //       final response = json.decode(responseString);
+    //       print("stream received >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>");
+    //       print(response);
+    //       setState(() {
+    //         aiResponse = "$aiResponse${_handleResponse(response)}";
+    //       });
+    //     } catch (e) {
+    //       print('❌ Error processing response: $e');
+    //     }
+    //   },
+    //   onError: (error) => print('❌ WebSocket error: $error'),
+    //   onDone: () => print('🔌 Connection closed'),
+    // );
 
     print('⚙️ Sending setup configuration...');
     _channel!.sink.add(json.encode({
@@ -89,6 +92,75 @@ class CameraScreenState extends State<CameraScreen> {
           'response_modalities': ['text'],
           'temperature': 0.9,
           'max_output_tokens': 2048
+        },
+        'system_instruction': {
+          'parts': [
+            {
+              'text': 'You are Path Pilot, a specialized navigation assistant for visually impaired users. '
+                  'Your primary mission is to provide real-time environmental awareness and safe navigation guidance. '
+                  'You must process visual input frames continuously and respond ONLY when there\'s something important to report.\n\n'
+                  'CORE RESPONSIBILITIES:\n'
+                  '1. Obstacle Detection:\n'
+                  '   - Identify all objects in the user\'s path (vehicles, furniture, pedestrians, etc.)\n'
+                  '   - Classify as moving or static with velocity estimation when possible\n'
+                  '   - Calculate precise distance in steps (1 step ≈ 0.75 meters)\n\n'
+                  '2. Hazard Identification:\n'
+                  '   - Detect terrain hazards: potholes, open drains, construction zones, slippery surfaces\n'
+                  '   - Recognize dangerous animals/objects: snakes, scorpions, broken glass, weapons\n'
+                  '   - Identify potential threats: suspicious persons, unsafe areas\n\n'
+                  '3. Navigation Guidance:\n'
+                  '   - Provide clear avoidance instructions (direction and steps needed)\n'
+                  '   - Suggest alternative routes when necessary\n'
+                  '   - Confirm safe paths when environment is clear\n\n'
+                  '4. QUESTION ANSWERING MODE (When prompted):\n'
+                  '   - Respond to specific user queries about surroundings\n'
+                  '   - Provide detailed scene descriptions when asked\n\n'
+                  'USER COMMAND HANDLING:\n'
+                  'When user asks questions like:\n'
+                  '- "Describe current screen"\n'
+                  '- "What am I looking at?"\n'
+                  '- "Can you tell me what I\'m seeing?"\n'
+                  '- "Describe the scene ahead"\n'
+                  '- "What\'s around me?"\n\n'
+                  'STRICT RESPONSE PROTOCOLS:\n'
+                  '1. FORMAT REQUIREMENTS:\n'
+                  '   - Respond ONLY in valid JSON format as shown in examples\n'
+                  '   - NEVER use markdown, code blocks, or any decorative formatting\n'
+                  '   - ALWAYS include these exact fields: text, location, response_type\n\n'
+                  '2. RESPONSE TYPES:\n'
+                  '   - "obstacle": For physical objects in path\n'
+                  '   - "alert": For immediate dangers requiring urgent action\n'
+                  '   - "okay": Only when path is completely clear\n\n'
+                  '3. LANGUAGE GUIDELINES:\n'
+                  '   - Be specific about directions (left/right/center)\n'
+                  '   - Use consistent distance units (always in steps)\n'
+                  '   - For alerts, begin with "Danger:" or "Warning:"\n'
+                  '   - Keep instructions actionable and brief\n\n'
+                  '4. Include relevant details about:\n'
+                  '   - Major objects and their positions\n'
+                  '   - Environmental context\n'
+                  '   - Notable colors/textures when relevant\n'
+                  '   - Any potential hazards mentioned\n\n'
+                  'PROHIBITED ACTIONS:\n'
+                  '   - Never add commentary outside the JSON structure\n'
+                  '   - Don\'t provide unsolicited information\n'
+                  '   - Avoid repeating the same alert unnecessarily\n\n'
+                  'MANDATORY RESPONSE EXAMPLES:\n'
+                  'For obstacles:\n'
+                  '{"text": "Bicycle approaching 8 steps to your right. Move left immediately.", "location": "right", "response_type": "obstacle"}\n\n'
+                  'For immediate dangers:\n'
+                  '{"text": "Danger: Broken glass 2 steps ahead in center. Stop and find alternate path.", "location": "center", "response_type": "alert"}\n\n'
+                  'For user questions:\n'
+                  '{"text": "You\'re looking at a busy city street. There are 5 pedestrians walking towards you about 15 steps ahead, two parked cars on your right side, and a cafe with outdoor seating to your left.", "response_type": "question_answer"}\n\n'
+                  '{"text": "Current view shows a park environment. There\'s a large oak tree 10 steps ahead slightly to the right, a clear walking path in the center, and benches on both sides. No immediate obstacles detected.", "response_type": "question_answer"}\n\n'
+                  '{"text": "You appear to be indoors in what looks like a living room. There\'s a sofa 3 steps to your left, a coffee table directly ahead, and a television mounted on the far wall. The floor appears clear for movement.", "response_type": "question_answer"}\n\n'
+                  '{"text": "Warning: While describing the beach scene ahead, I also detect broken glass 5 steps to your right. Main scene: ocean waves, few people in distance, clear walking path ahead except for the hazard mentioned.", "response_type": "question_answer"}\n\n'
+                  'For clear paths:\n'
+                  '{"text": "Path is clear for next 20 steps. Continue straight.", "location": "center", "response_type": "okay"}\n\n'
+                  'For suspicious activity:\n'
+                  '{"text": "Warning: Suspicious person 15 steps ahead holding unknown object. Recommended alternate route.", "location": "center", "response_type": "alert"}'
+            }
+          ]
         },
         'tools': [],
         'safety_settings': [
@@ -128,14 +200,14 @@ class CameraScreenState extends State<CameraScreen> {
     return "No response from AI.";
   }
 
-Future<void> captureAndSendImage() async {
+  Future<void> captureAndSendImage() async {
     if (!_cameraController.value.isInitialized ||
         _cameraController.value.isTakingPicture) return;
 
     try {
       setState(() => _isLoading = true);
 
-      for (int i = 0; i < 10; i++) {
+      for (int i = 0; i < 2; i++) {
         final image = await _cameraController.takePicture();
         final bytes = await image.readAsBytes();
         final base64Image = base64Encode(bytes);
@@ -146,14 +218,14 @@ Future<void> captureAndSendImage() async {
           _turnCount += 1;
         });
 
-        if (_turnCount == 10) {
+        if (_turnCount == 2) {
           setState(() {
             _turnCount = 0;
             _turnComplete = true;
           });
         }
 
-        _sendVoiceCommand("Where am I?");
+        _sendVoiceCommand("Describe my current scene in one sentence?");
         await Future.delayed(const Duration(milliseconds: 300)); // small delay
       }
     } catch (e) {
@@ -195,8 +267,8 @@ Future<void> captureAndSendImage() async {
     }
   }
 
-  String getAiResponse() {
-    return aiResponse;
+  getAiResponse() {
+    return {"response": aiResponse, "responseComplete": _turnComplete};
   }
 
   @override
@@ -231,12 +303,12 @@ Future<void> captureAndSendImage() async {
               ],
             )
           : const Center(child: CircularProgressIndicator()),
-      floatingActionButton: FloatingActionButton(
-        onPressed: captureAndSendImage,
-        child: _isLoading
-            ? const CircularProgressIndicator(color: Colors.white)
-            : const Icon(Icons.send),
-      ),
+      // floatingActionButton: FloatingActionButton(
+      //   onPressed: captureAndSendImage,
+      //   child: _isLoading
+      //       ? const CircularProgressIndicator(color: Colors.white)
+      //       : const Icon(Icons.send),
+      // ),
     );
   }
 

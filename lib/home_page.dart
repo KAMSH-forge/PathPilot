@@ -3,6 +3,8 @@ import 'googlemap.dart'; // Your Google Map screen
 import 'camera_screen_gemini.dart'; // Your Camera screen
 import 'package:flutter/material.dart';
 import 'camera_screen_yolo.dart';
+import 'bluetooth.dart';
+
 // import 'camera_screen.dart';
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -70,19 +72,18 @@ class HomePage extends StatelessWidget {
                   );
                 },
               ),
-              const SizedBox(height: 10),
-              FeatureTile(
-                icon: Icons.camera_alt,
-                title: "Camera",
-                subtitle: "Yolo",
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (context) =>  const YoloVideo()),
-                  );
-                },
-              ),
+              // const SizedBox(height: 10),
+              // FeatureTile(
+              //   icon: Icons.camera_alt,
+              //   title: "Camera",
+              //   subtitle: "Yolo",
+              //   onTap: () {
+              //     Navigator.push(
+              //       context,
+              //       MaterialPageRoute(builder: (context) => const YoloVideo()),
+              //     );
+              //   },
+              // ),
               const SizedBox(height: 10),
               FeatureTile(
                 icon: Icons.map,
@@ -96,12 +97,29 @@ class HomePage extends StatelessWidget {
                   );
                 },
               ),
+              const SizedBox(height: 10),
+              FeatureTile(
+                icon: Icons.bluetooth,
+                title: "Connect device",
+                subtitle: "Connect to haptic device",
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (context) => const BluetoothSetupPage()),
+                  );
+                },
+              ),
               // Get Started Button
               const SizedBox(height: 30),
               ElevatedButton(
                 onPressed: () {
                   // Navigate to the main app screen
-                  Navigator.pushNamed(context, '/mainApp');
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (context) => const GoogleMapPage()),
+                  );
                 },
                 style: ElevatedButton.styleFrom(
                   padding:
