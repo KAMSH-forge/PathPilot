@@ -260,7 +260,7 @@ class _GoogleMapPageState extends State<GoogleMapPage> {
     return '';
   }
 
-  void _captureAndSendImage() {
+  void _captureAndSendImage()                                                                                       {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       setState(() {
         aiResponse = "";
